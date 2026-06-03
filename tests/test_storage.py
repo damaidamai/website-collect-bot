@@ -18,10 +18,12 @@ async def test_upsert_site_and_set_status(tmp_path: Path) -> None:
 
     assert site.domain == "example.com"
     assert site.status == SiteStatus.TODO.value
+    assert site.notes == "首次记录"
 
-    updated = await storage.set_status("example.com", SiteStatus.DONE.value, reason="测试")
+    updated = await storage.set_status("example.com", SiteStatus.DONE.value, reason="测试", notes="说明或备注")
     assert updated is not None
     assert updated.status == SiteStatus.DONE.value
+    assert updated.notes == "首次记录\n说明或备注"
 
 
 async def test_record_message_and_link_site(tmp_path: Path) -> None:

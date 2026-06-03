@@ -13,6 +13,7 @@ class NaturalLanguageIntent:
     name: str
     domain: str | None = None
     status: str | None = None
+    notes: str | None = None
 
 
 def parse_natural_language_intent(text: str) -> NaturalLanguageIntent | None:
@@ -61,7 +62,10 @@ def coerce_ai_intent(data: dict[str, Any]) -> NaturalLanguageIntent | None:
     if intent == "site" and domain is None:
         return None
 
-    return NaturalLanguageIntent(intent, domain=domain, status=status)
+    raw_notes = data.get("notes") or data.get("reason")
+    notes = str(raw_notes).strip() if raw_notes else None
+
+    return NaturalLanguageIntent(intent, domain=domain, status=status, notes=notes)
 
 
 def should_use_ai_intent(text: str, bot_username: str | None = None) -> bool:

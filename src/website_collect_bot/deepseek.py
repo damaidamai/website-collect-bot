@@ -26,12 +26,13 @@ JSON 字段：
 - intent: string，只能是 list/site/status/help/none
 - domain: string|null，只有查询或更新某个网站时填写域名
 - status: string|null，只能是 待处理/处理中/已处理/搁置/无需处理/null
+- notes: string|null，仅当意图为状态更新(status)时，若用户在消息中提供了有关该网站状态更新的补充说明、备注或理由（除状态指示词如“标记处理完成”外），则提取出来作为 notes，否则为 null。
 - confidence: number，0 到 1
 
 意图说明：
 - list：用户想看网站列表、待办/待处理列表、已处理列表等
 - site：用户想查看某个域名的详情、摘要或状态
-- status：用户想把某个域名更新成某个状态
+- status：用户想把某个域名更新成某个状态，并且可能带有对该状态的额外说明
 - help：用户询问用法
 - none：普通聊天、单纯记录新 URL、无法确定或缺少必要信息
 """

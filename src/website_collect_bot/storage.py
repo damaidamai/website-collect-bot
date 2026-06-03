@@ -177,16 +177,30 @@ class Storage:
             )
             await db.commit()
 
-    async def set_status(self, domain: str, new_status: str, reason: str | None = None) -> SiteRecord | None:
+    async def set_status(
+        self,
+        domain: str,
+        new_status: str,
+        reason: str | None = None,
+        notes: str | None = None,
+    ) -> SiteRecord | None:
         now = utc_now_iso()
         async with aiosqlite.connect(self.database_path) as db:
             row = await self._get_site_row(db, domain)
             if row is None:
                 return None
             site = row_to_site(row)
+            
+            updated_notes = site.notes
+            if notes:
+                if updated_notes:
+                    updated_notes = f"{updated_notes}\n{notes}"
+                else:
+                    updated_notes = notes
+
             await db.execute(
-                "UPDATE sites SET status = ?, updated_at = ? WHERE id = ?",
-                (new_status, now, site.id),
+                "UPDATE sites SET status = ?, notes = ?, updated_at = ? WHERE id = ?",
+                (new_status, updated_notes, now, site.id),
             )
             if site.status != new_status:
                 await self._insert_status_history(db, site.id, site.status, new_status, reason)

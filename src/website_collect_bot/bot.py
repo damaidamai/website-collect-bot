@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import logging
 
 from telegram import Update
@@ -165,7 +166,8 @@ class WebsiteCollectBot:
             await self.reply_site_detail(update, intent.domain)
             return True
         if intent.name == "status" and intent.domain and intent.status:
-            await self.update_site_status(update, intent.domain, intent.status, "自然语言更新")
+            reason = intent.notes or "自然语言更新"
+            await self.update_site_status(update, intent.domain, intent.status, reason, notes=intent.notes)
             return True
         return False
 
@@ -174,13 +176,14 @@ class WebsiteCollectBot:
             return
         sites = await self.storage.list_sites(status=status, limit=20)
         if not sites:
-            await update.effective_message.reply_text(f"{title}：暂无")
+            await update.effective_message.reply_text(f"<b>📋 {html.escape(title)}</b>：暂无", parse_mode="HTML")
             return
-        lines = [f"{title}："]
+        lines = [f"<b>📋 {html.escape(title)}</b>", "────────────────"]
         for index, site in enumerate(sites, start=1):
+            url = site.canonical_url if site.canonical_url else f"https://{site.domain}"
             summary = f" - {site.summary[:40]}" if site.summary else ""
-            lines.append(f"{index}. {site.domain}｜{site.status}{summary}")
-        await update.effective_message.reply_text("\n".join(lines))
+            lines.append(f"{index}. {html.escape(url)} ｜ {html.escape(site.status)}{html.escape(summary)}")
+        await update.effective_message.reply_text("\n".join(lines), parse_mode="HTML")
 
     async def site_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self.is_allowed_chat(update) or update.effective_message is None:
@@ -197,35 +200,47 @@ class WebsiteCollectBot:
             return
         site = await self.storage.get_site(domain)
         if site is None:
-            await update.effective_message.reply_text(f"未找到：{domain}")
+            await update.effective_message.reply_text(f"未找到：{html.escape(domain)}")
             return
 
+        status_emojis = {
+            SiteStatus.TODO.value: "🔴",
+            SiteStatus.IN_PROGRESS.value: "🟡",
+            SiteStatus.DONE.value: "🟢",
+            SiteStatus.PAUSED.value: "⚪",
+            SiteStatus.NO_ACTION.value: "⚫",
+        }
+        emoji = status_emojis.get(site.status, "ℹ️")
+
         lines = [
-            f"{site.domain}",
-            f"状态：{site.status}",
-            f"URL：{site.canonical_url or '-'}",
-            f"摘要：{site.summary or '-'}",
+            f"<b>🌐 {html.escape(site.domain)}</b>",
+            "────────────────",
+            f"<b>状态：</b>{emoji} {html.escape(site.status)}",
+            f"<b>URL：</b>{html.escape(site.canonical_url or '-')}",
+            f"<b>摘要：</b>{html.escape(site.summary or '-')}",
         ]
         if site.notes:
-            lines.append(f"备注：{site.notes[:500]}")
-        await update.effective_message.reply_text("\n".join(lines))
+            lines.append(f"<b>备注：</b>\n{html.escape(site.notes)}")
+        await update.effective_message.reply_text("\n".join(lines), parse_mode="HTML")
 
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self.is_allowed_chat(update) or update.effective_message is None:
             return
         if len(context.args) < 2:
-            await update.effective_message.reply_text("用法：/status <domain> <状态>")
+            await update.effective_message.reply_text("用法：/status <domain> <状态> [备注]")
             return
 
         domain = normalize_domain(context.args[0])
-        status = normalize_status(" ".join(context.args[1:]))
+        status = normalize_status(context.args[1])
         if status is None:
             await update.effective_message.reply_text(
                 "状态必须是：待处理 / 处理中 / 已处理 / 搁置 / 无需处理"
             )
             return
 
-        await self.update_site_status(update, domain, status, "命令更新")
+        notes = " ".join(context.args[2:]) if len(context.args) > 2 else None
+        reason = notes or "命令更新"
+        await self.update_site_status(update, domain, status, reason, notes=notes)
 
     async def update_site_status(
         self,
@@ -233,11 +248,12 @@ class WebsiteCollectBot:
         domain: str,
         status: str,
         reason: str,
+        notes: str | None = None,
     ) -> None:
         if not self.is_allowed_chat(update) or update.effective_message is None:
             return
-        site = await self.storage.set_status(domain, status, reason=reason)
+        site = await self.storage.set_status(domain, status, reason=reason, notes=notes)
         if site is None:
-            await update.effective_message.reply_text(f"未找到：{domain}")
+            await update.effective_message.reply_text(f"未找到：{html.escape(domain)}")
             return
-        await update.effective_message.reply_text(f"已更新：{site.domain}｜{site.status}")
+        await update.effective_message.reply_text(f"已更新：{html.escape(site.domain)}｜{html.escape(site.status)}")

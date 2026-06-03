@@ -69,3 +69,21 @@ def test_coerce_ai_intent_rejects_low_confidence() -> None:
     )
 
     assert intent is None
+
+
+def test_coerce_ai_intent_with_notes() -> None:
+    intent = coerce_ai_intent(
+        {
+            "intent": "status",
+            "domain": "example.com",
+            "status": "已处理",
+            "notes": "全局控制错误登录次数无法爆破",
+            "confidence": 0.9,
+        }
+    )
+
+    assert intent is not None
+    assert intent.name == "status"
+    assert intent.domain == "example.com"
+    assert intent.status == SiteStatus.DONE.value
+    assert intent.notes == "全局控制错误登录次数无法爆破"
