@@ -15,13 +15,13 @@ fi
 echo "确认代码已全部提交，正在推送至 GitHub 远端仓库..."
 git push origin main
 
-echo "========== [3/5] SSH 连接 openclaw 并拉取代码 =========="
-ssh openclaw "cd /opt/website-collect-bot && git pull"
+echo "========== [3/5] SSH 连接 hk2H4G 并拉取代码 =========="
+ssh hk2H4G "cd /root/projects/website-collect-bot && git pull"
 
 echo "========== [4/5] 远程重启 website-collect-bot 服务 =========="
-ssh openclaw "systemctl restart website-collect-bot.service"
+ssh hk2H4G "systemctl restart website-collect-bot.service"
 
 echo "========== [5/5] 检查远程服务运行状态 =========="
-ssh openclaw "systemctl status website-collect-bot.service --no-pager"
+ssh hk2H4G "systemctl status website-collect-bot.service --no-pager"
 
 echo "🎉 一键部署已成功完成！"
