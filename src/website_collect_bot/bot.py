@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
+import re
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
@@ -20,7 +22,20 @@ HELP_TEXT = """可用命令：
 /done 查看已处理网站
 /site <domain> 查看网站详情
 /status <domain> <状态> 更新状态
+
+也可以直接说：
+待处理列表
+全部网站
+查 example.com
+把 example.com 标为已处理
 """
+
+
+@dataclass(frozen=True)
+class NaturalLanguageIntent:
+    name: str
+    domain: str | None = None
+    status: str | None = None
 
 
 class WebsiteCollectBot:
@@ -76,6 +91,10 @@ class WebsiteCollectBot:
         if message is None or chat is None or not message.text:
             return
 
+        intent = parse_natural_language_intent(message.text)
+        if intent is not None and await self.handle_natural_language_intent(update, intent):
+            return
+
         domains = extract_domains(message.text)
         if not domains:
             return
@@ -126,6 +145,29 @@ class WebsiteCollectBot:
     async def done_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self.reply_site_list(update, SiteStatus.DONE.value, "已处理网站")
 
+    async def handle_natural_language_intent(
+        self,
+        update: Update,
+        intent: NaturalLanguageIntent,
+    ) -> bool:
+        message = update.effective_message
+        if message is None:
+            return False
+        if intent.name == "help":
+            await message.reply_text(HELP_TEXT)
+            return True
+        if intent.name == "list":
+            title = list_title(intent.status)
+            await self.reply_site_list(update, intent.status, title)
+            return True
+        if intent.name == "site" and intent.domain:
+            await self.reply_site_detail(update, intent.domain)
+            return True
+        if intent.name == "status" and intent.domain and intent.status:
+            await self.update_site_status(update, intent.domain, intent.status, "自然语言更新")
+            return True
+        return False
+
     async def reply_site_list(self, update: Update, status: str | None, title: str) -> None:
         if not self.is_allowed_chat(update) or update.effective_message is None:
             return
@@ -147,6 +189,11 @@ class WebsiteCollectBot:
             return
 
         domain = normalize_domain(context.args[0])
+        await self.reply_site_detail(update, domain)
+
+    async def reply_site_detail(self, update: Update, domain: str) -> None:
+        if not self.is_allowed_chat(update) or update.effective_message is None:
+            return
         site = await self.storage.get_site(domain)
         if site is None:
             await update.effective_message.reply_text(f"未找到：{domain}")
@@ -177,8 +224,82 @@ class WebsiteCollectBot:
             )
             return
 
-        site = await self.storage.set_status(domain, status, reason="命令更新")
+        await self.update_site_status(update, domain, status, "命令更新")
+
+    async def update_site_status(
+        self,
+        update: Update,
+        domain: str,
+        status: str,
+        reason: str,
+    ) -> None:
+        if not self.is_allowed_chat(update) or update.effective_message is None:
+            return
+        site = await self.storage.set_status(domain, status, reason=reason)
         if site is None:
             await update.effective_message.reply_text(f"未找到：{domain}")
             return
         await update.effective_message.reply_text(f"已更新：{site.domain}｜{site.status}")
+
+
+def parse_natural_language_intent(text: str) -> NaturalLanguageIntent | None:
+    cleaned = clean_natural_language_text(text)
+    if not cleaned:
+        return None
+
+    if any(token in cleaned for token in ("帮助", "怎么用", "使用说明")):
+        return NaturalLanguageIntent("help")
+
+    status = find_status_in_text(cleaned)
+    domains = extract_domains(cleaned)
+    if domains and status and re.search(r"(状态|改成|改为|设为|设置为|标为|标记为|更新为|变成)", cleaned):
+        return NaturalLanguageIntent("status", domain=domains[0], status=status)
+
+    if domains and re.search(r"(查|查看|看看|详情|信息|摘要|状态)", cleaned):
+        return NaturalLanguageIntent("site", domain=domains[0])
+
+    if is_list_request(cleaned):
+        return NaturalLanguageIntent("list", status=status)
+
+    return None
+
+
+def clean_natural_language_text(text: str) -> str:
+    text = re.sub(r"@\w+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def find_status_in_text(text: str) -> str | None:
+    for token in (
+        SiteStatus.NO_ACTION.value,
+        SiteStatus.IN_PROGRESS.value,
+        SiteStatus.DONE.value,
+        SiteStatus.PAUSED.value,
+        SiteStatus.TODO.value,
+        "不用处理",
+        "已完成",
+        "完成",
+        "处理完",
+        "待办",
+        "暂停",
+        "doing",
+        "done",
+        "todo",
+    ):
+        if token in text:
+            normalized = normalize_status(token)
+            if normalized:
+                return normalized
+    return None
+
+
+def is_list_request(text: str) -> bool:
+    if re.search(r"(列表|清单|有哪些|有多少|列出|查看|看看)", text):
+        return any(token in text for token in ("网站", "待处理", "待办", "处理中", "已处理", "搁置", "无需处理", "全部", "所有"))
+    return text in {"待处理", "待办", "处理中", "已处理", "搁置", "无需处理", "全部网站", "所有网站"}
+
+
+def list_title(status: str | None) -> str:
+    if status is None:
+        return "全部网站"
+    return f"{status}网站"
