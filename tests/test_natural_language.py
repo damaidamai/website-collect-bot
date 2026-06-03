@@ -1,4 +1,8 @@
-from website_collect_bot.bot import parse_natural_language_intent
+from website_collect_bot.intent import (
+    coerce_ai_intent,
+    parse_natural_language_intent,
+    should_use_ai_intent,
+)
 from website_collect_bot.models import SiteStatus
 
 
@@ -33,3 +37,35 @@ def test_parse_status_update_request() -> None:
     assert intent.name == "status"
     assert intent.domain == "example.com"
     assert intent.status == SiteStatus.DONE.value
+
+
+def test_should_use_ai_intent_for_bot_mention() -> None:
+    assert should_use_ai_intent("@cute73_bot 还有哪些没搞完")
+
+
+def test_coerce_ai_list_intent() -> None:
+    intent = coerce_ai_intent(
+        {
+            "intent": "list",
+            "domain": None,
+            "status": "待处理",
+            "confidence": 0.92,
+        }
+    )
+
+    assert intent is not None
+    assert intent.name == "list"
+    assert intent.status == SiteStatus.TODO.value
+
+
+def test_coerce_ai_intent_rejects_low_confidence() -> None:
+    intent = coerce_ai_intent(
+        {
+            "intent": "status",
+            "domain": "example.com",
+            "status": "已处理",
+            "confidence": 0.3,
+        }
+    )
+
+    assert intent is None

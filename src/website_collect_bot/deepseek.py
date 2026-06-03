@@ -20,6 +20,22 @@ JSON 字段：
 - confidence: number，0 到 1
 """
 
+INTENT_PROMPT = """你是 Telegram 网站台账机器人的意图识别器。
+判断用户是否在和机器人交互。只输出 JSON，不要输出 Markdown。
+JSON 字段：
+- intent: string，只能是 list/site/status/help/none
+- domain: string|null，只有查询或更新某个网站时填写域名
+- status: string|null，只能是 待处理/处理中/已处理/搁置/无需处理/null
+- confidence: number，0 到 1
+
+意图说明：
+- list：用户想看网站列表、待办/待处理列表、已处理列表等
+- site：用户想查看某个域名的详情、摘要或状态
+- status：用户想把某个域名更新成某个状态
+- help：用户询问用法
+- none：普通聊天、单纯记录新 URL、无法确定或缺少必要信息
+"""
+
 
 class DeepSeekClient:
     def __init__(self, api_key: str, base_url: str, model: str) -> None:
@@ -74,6 +90,38 @@ class DeepSeekClient:
             return fallback_analysis(domain, message_text)
 
         return coerce_analysis(domain, message_text, data)
+
+    async def classify_bot_intent(self, message_text: str) -> dict[str, Any] | None:
+        if not self.api_key:
+            return None
+
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {"role": "system", "content": INTENT_PROMPT},
+                            {"role": "user", "content": message_text},
+                        ],
+                        "temperature": 0,
+                        "thinking": {"type": "disabled"},
+                        "response_format": {"type": "json_object"},
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
+                content = payload["choices"][0]["message"]["content"]
+                data = json.loads(content)
+        except Exception:
+            return None
+
+        return data if isinstance(data, dict) else None
 
 
 def coerce_analysis(domain: str, message_text: str, data: dict[str, Any]) -> AnalysisResult:

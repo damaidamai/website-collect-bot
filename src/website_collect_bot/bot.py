@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
-import re
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
@@ -10,6 +8,13 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 from website_collect_bot.config import Settings
 from website_collect_bot.deepseek import DeepSeekClient
 from website_collect_bot.extract import extract_domains, normalize_domain
+from website_collect_bot.intent import (
+    NaturalLanguageIntent,
+    coerce_ai_intent,
+    list_title,
+    parse_natural_language_intent,
+    should_use_ai_intent,
+)
 from website_collect_bot.models import SiteStatus, normalize_status
 from website_collect_bot.storage import Storage
 
@@ -29,13 +34,6 @@ HELP_TEXT = """可用命令：
 查 example.com
 把 example.com 标为已处理
 """
-
-
-@dataclass(frozen=True)
-class NaturalLanguageIntent:
-    name: str
-    domain: str | None = None
-    status: str | None = None
 
 
 class WebsiteCollectBot:
@@ -92,6 +90,9 @@ class WebsiteCollectBot:
             return
 
         intent = parse_natural_language_intent(message.text)
+        if intent is None and should_use_ai_intent(message.text, getattr(context.bot, "username", None)):
+            ai_intent = await self.deepseek.classify_bot_intent(message.text)
+            intent = coerce_ai_intent(ai_intent) if ai_intent else None
         if intent is not None and await self.handle_natural_language_intent(update, intent):
             return
 
@@ -240,66 +241,3 @@ class WebsiteCollectBot:
             await update.effective_message.reply_text(f"未找到：{domain}")
             return
         await update.effective_message.reply_text(f"已更新：{site.domain}｜{site.status}")
-
-
-def parse_natural_language_intent(text: str) -> NaturalLanguageIntent | None:
-    cleaned = clean_natural_language_text(text)
-    if not cleaned:
-        return None
-
-    if any(token in cleaned for token in ("帮助", "怎么用", "使用说明")):
-        return NaturalLanguageIntent("help")
-
-    status = find_status_in_text(cleaned)
-    domains = extract_domains(cleaned)
-    if domains and status and re.search(r"(状态|改成|改为|设为|设置为|标为|标记为|更新为|变成)", cleaned):
-        return NaturalLanguageIntent("status", domain=domains[0], status=status)
-
-    if domains and re.search(r"(查|查看|看看|详情|信息|摘要|状态)", cleaned):
-        return NaturalLanguageIntent("site", domain=domains[0])
-
-    if is_list_request(cleaned):
-        return NaturalLanguageIntent("list", status=status)
-
-    return None
-
-
-def clean_natural_language_text(text: str) -> str:
-    text = re.sub(r"@\w+", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def find_status_in_text(text: str) -> str | None:
-    for token in (
-        SiteStatus.NO_ACTION.value,
-        SiteStatus.IN_PROGRESS.value,
-        SiteStatus.DONE.value,
-        SiteStatus.PAUSED.value,
-        SiteStatus.TODO.value,
-        "不用处理",
-        "已完成",
-        "完成",
-        "处理完",
-        "待办",
-        "暂停",
-        "doing",
-        "done",
-        "todo",
-    ):
-        if token in text:
-            normalized = normalize_status(token)
-            if normalized:
-                return normalized
-    return None
-
-
-def is_list_request(text: str) -> bool:
-    if re.search(r"(列表|清单|有哪些|有多少|列出|查看|看看)", text):
-        return any(token in text for token in ("网站", "待处理", "待办", "处理中", "已处理", "搁置", "无需处理", "全部", "所有"))
-    return text in {"待处理", "待办", "处理中", "已处理", "搁置", "无需处理", "全部网站", "所有网站"}
-
-
-def list_title(status: str | None) -> str:
-    if status is None:
-        return "全部网站"
-    return f"{status}网站"

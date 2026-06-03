@@ -39,6 +39,15 @@ uv run website-collect-bot
 - `/status <domain> <状态>`：更新状态
 - `/help`：查看帮助
 
+也支持自然语言交互，例如：
+
+```text
+@cute73_bot 待处理列表
+还有哪些没处理
+查 example.com 的状态
+把 example.com 标为已处理
+```
+
 支持状态：
 
 - `待处理`
