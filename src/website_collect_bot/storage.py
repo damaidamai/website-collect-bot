@@ -222,7 +222,7 @@ class Storage:
         if status:
             query += " WHERE status = ?"
             params = (status,)
-        query += " ORDER BY updated_at DESC LIMIT ?"
+        query += " ORDER BY updated_at ASC LIMIT ?"
         params = (*params, limit)
 
         async with aiosqlite.connect(self.database_path) as db:

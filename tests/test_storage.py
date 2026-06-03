@@ -42,3 +42,36 @@ async def test_record_message_and_link_site(tmp_path: Path) -> None:
 
     recent = await storage.recent_site_messages(site.id)
     assert recent == ["m"]
+
+
+async def test_list_sites_sort_order(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "sites.sqlite3")
+    await storage.init()
+
+    # Create the first site
+    await storage.upsert_site(
+        domain="example1.com",
+        canonical_url=None,
+        title=None,
+        summary="1",
+        notes=None,
+    )
+
+    # Sleep slightly to ensure distinct timestamps
+    import asyncio
+    await asyncio.sleep(0.05)
+
+    # Create the second site
+    await storage.upsert_site(
+        domain="example2.com",
+        canonical_url=None,
+        title=None,
+        summary="2",
+        notes=None,
+    )
+
+    sites = await storage.list_sites()
+    assert len(sites) == 2
+    # Since it is ASC (oldest first), site1 should be first, site2 second
+    assert sites[0].domain == "example1.com"
+    assert sites[1].domain == "example2.com"

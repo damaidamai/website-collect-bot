@@ -182,7 +182,8 @@ class WebsiteCollectBot:
         for index, site in enumerate(sites, start=1):
             url = site.canonical_url if site.canonical_url else f"https://{site.domain}"
             summary = f" - {site.summary[:40]}" if site.summary else ""
-            lines.append(f"{index}. {html.escape(url)} ｜ {html.escape(site.status)}{html.escape(summary)}")
+            date_str = site.updated_at.strftime("%m-%d")
+            lines.append(f"{index}. {html.escape(url)} ｜ {html.escape(site.status)} ｜ {date_str}{html.escape(summary)}")
         await update.effective_message.reply_text("\n".join(lines), parse_mode="HTML")
 
     async def site_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
