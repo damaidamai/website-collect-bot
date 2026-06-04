@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import re
 from typing import Any
 
-from website_collect_bot.extract import extract_domains, normalize_domain
+from website_collect_bot.extract import canonical_site_key, extract_domains, normalize_domain
 from website_collect_bot.models import SiteStatus, normalize_status
 
 
@@ -27,10 +27,10 @@ def parse_natural_language_intent(text: str) -> NaturalLanguageIntent | None:
     status = find_status_in_text(cleaned)
     domains = extract_domains(cleaned)
     if domains and status and re.search(r"(状态|改成|改为|设为|设置为|标为|标记为|更新为|变成)", cleaned):
-        return NaturalLanguageIntent("status", domain=domains[0], status=status)
+        return NaturalLanguageIntent("status", domain=canonical_site_key(domains[0]), status=status)
 
     if domains and re.search(r"(查|查看|看看|详情|信息|摘要|状态)", cleaned):
-        return NaturalLanguageIntent("site", domain=domains[0])
+        return NaturalLanguageIntent("site", domain=canonical_site_key(domains[0]))
 
     if is_list_request(cleaned):
         return NaturalLanguageIntent("list", status=status)
@@ -55,7 +55,7 @@ def coerce_ai_intent(data: dict[str, Any]) -> NaturalLanguageIntent | None:
 
     status = normalize_status(str(data.get("status") or "")) if data.get("status") else None
     raw_domain = str(data.get("domain") or "").strip()
-    domain = normalize_domain(raw_domain) if raw_domain else None
+    domain = canonical_site_key(normalize_domain(raw_domain)) if raw_domain else None
 
     if intent == "status" and (domain is None or status is None):
         return None

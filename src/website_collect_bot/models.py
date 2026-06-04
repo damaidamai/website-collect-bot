@@ -62,3 +62,4 @@ class AnalysisResult:
     summary: str
     notes: str | None
     confidence: float
+    reply: str | None = None

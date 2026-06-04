@@ -75,3 +75,38 @@ async def test_list_sites_sort_order(tmp_path: Path) -> None:
     # Since it is ASC (oldest first), site1 should be first, site2 second
     assert sites[0].domain == "example1.com"
     assert sites[1].domain == "example2.com"
+
+
+async def test_init_merges_subdomain_sites(tmp_path: Path) -> None:
+    db_path = tmp_path / "sites.sqlite3"
+    storage = Storage(db_path)
+    await storage.init()
+
+    root = await storage.upsert_site(
+        domain="example.com",
+        canonical_url="https://example.com",
+        title="Example",
+        summary="主站摘要",
+        notes="主站备注",
+        status=SiteStatus.DONE.value,
+    )
+    child = await storage.upsert_site(
+        domain="admin.example.com",
+        canonical_url="https://admin.example.com/login",
+        title=None,
+        summary="后台待处理",
+        notes="后台备注",
+        status=SiteStatus.TODO.value,
+    )
+    message_id = await storage.record_message(telegram_message_id=1, chat_id=2, sender_name="u", message_text="m")
+    await storage.link_message_to_site(message_id, child.id)
+
+    await storage.init()
+
+    merged = await storage.get_site("example.com")
+    assert merged is not None
+    assert merged.id == root.id
+    assert merged.status == SiteStatus.TODO.value
+    assert "admin.example.com" in merged.notes
+    assert await storage.get_site("admin.example.com") is None
+    assert await storage.recent_site_messages(root.id) == ["m"]

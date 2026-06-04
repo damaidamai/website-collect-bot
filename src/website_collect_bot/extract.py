@@ -31,6 +31,32 @@ def normalize_url(value: str) -> str | None:
     return f"{parsed.scheme or 'https'}://{host}{path}"
 
 
+MULTI_PART_SUFFIXES = {
+    "com.cn",
+    "net.cn",
+    "org.cn",
+    "gov.cn",
+    "com.hk",
+    "net.hk",
+    "org.hk",
+    "co.uk",
+    "com.au",
+    "co.jp",
+}
+
+
+def canonical_site_key(domain: str) -> str:
+    normalized = normalize_domain(domain)
+    parts = [part for part in normalized.split(".") if part]
+    if len(parts) <= 2:
+        return normalized
+
+    suffix = ".".join(parts[-2:])
+    if suffix in MULTI_PART_SUFFIXES and len(parts) >= 3:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
+
+
 def extract_domains(text: str) -> list[str]:
     seen: set[str] = set()
     domains: list[str] = []
@@ -51,9 +77,15 @@ def extract_domains(text: str) -> list[str]:
 
 
 def extract_first_url_for_domain(text: str, domain: str) -> str | None:
+    return extract_first_url_for_domains(text, [domain])
+
+
+def extract_first_url_for_domains(text: str, domains: list[str]) -> str | None:
+    normalized_domains = {normalize_domain(domain) for domain in domains}
     for url in URL_RE.findall(text):
-        if normalize_domain(url) == domain:
+        if normalize_domain(url) in normalized_domains:
             return normalize_url(url)
-    if domain in text:
-        return normalize_url(domain)
+    for domain in normalized_domains:
+        if domain in text:
+            return normalize_url(domain)
     return None

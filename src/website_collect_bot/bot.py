@@ -8,7 +8,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 from website_collect_bot.config import Settings
 from website_collect_bot.deepseek import DeepSeekClient
-from website_collect_bot.extract import extract_domains, normalize_domain
+from website_collect_bot.extract import canonical_site_key, extract_domains, normalize_domain
 from website_collect_bot.intent import (
     NaturalLanguageIntent,
     coerce_ai_intent,
@@ -98,7 +98,8 @@ class WebsiteCollectBot:
             return
 
         domains = extract_domains(message.text)
-        if not domains:
+        domains_by_site = group_domains_by_site_key(domains)
+        if not domains_by_site:
             return
 
         sender = update.effective_user.full_name if update.effective_user else None
@@ -110,17 +111,20 @@ class WebsiteCollectBot:
         )
 
         changed: list[str] = []
-        for domain in domains:
-            existing = await self.storage.get_site(domain)
+        for site_key, related_domains in domains_by_site.items():
+            existing = await self.storage.get_site(site_key)
             recent = await self.storage.recent_site_messages(existing.id) if existing else []
             analysis = await self.deepseek.analyze_site_message(
-                domain=domain,
+                site_key=site_key,
                 message_text=message.text,
+                related_domains=related_domains,
                 existing_summary=existing.summary if existing else "",
+                existing_status=existing.status if existing else "",
+                existing_notes=existing.notes if existing else "",
                 recent_messages=recent,
             )
             site = await self.storage.upsert_site(
-                domain=domain,
+                domain=site_key,
                 canonical_url=analysis.canonical_url,
                 title=analysis.title,
                 summary=analysis.summary,
@@ -129,8 +133,12 @@ class WebsiteCollectBot:
             )
             await self.storage.link_message_to_site(message_id, site.id)
             await self.storage.add_event(site.id, "message_analysis", analysis.notes or analysis.summary)
-            action = "已更新" if existing else "已记录"
-            changed.append(f"{action}：{site.domain}｜{site.status}")
+            if analysis.reply:
+                changed.append(analysis.reply)
+            else:
+                action = "已更新" if existing else "已记录"
+                suffix = f"｜已归并 {len(related_domains)} 个域名" if len(related_domains) > 1 else ""
+                changed.append(f"{action}：{site.domain}｜{site.status}{suffix}")
 
         await message.reply_text("\n".join(changed[:3]))
 
@@ -193,7 +201,7 @@ class WebsiteCollectBot:
             await update.effective_message.reply_text("用法：/site <domain>")
             return
 
-        domain = normalize_domain(context.args[0])
+        domain = canonical_site_key(normalize_domain(context.args[0]))
         await self.reply_site_detail(update, domain)
 
     async def reply_site_detail(self, update: Update, domain: str) -> None:
@@ -231,7 +239,7 @@ class WebsiteCollectBot:
             await update.effective_message.reply_text("用法：/status <domain> <状态> [备注]")
             return
 
-        domain = normalize_domain(context.args[0])
+        domain = canonical_site_key(normalize_domain(context.args[0]))
         status = normalize_status(context.args[1])
         if status is None:
             await update.effective_message.reply_text(
@@ -258,3 +266,14 @@ class WebsiteCollectBot:
             await update.effective_message.reply_text(f"未找到：{html.escape(domain)}")
             return
         await update.effective_message.reply_text(f"已更新：{html.escape(site.domain)}｜{html.escape(site.status)}")
+
+
+def group_domains_by_site_key(domains: list[str]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for domain in domains:
+        normalized = normalize_domain(domain)
+        site_key = canonical_site_key(normalized)
+        grouped.setdefault(site_key, [])
+        if normalized not in grouped[site_key]:
+            grouped[site_key].append(normalized)
+    return grouped

@@ -23,7 +23,7 @@ def test_parse_all_sites_list() -> None:
 
 
 def test_parse_site_detail_request() -> None:
-    intent = parse_natural_language_intent("帮我查一下 example.com 的状态")
+    intent = parse_natural_language_intent("帮我查一下 admin.example.com 的状态")
 
     assert intent is not None
     assert intent.name == "site"
@@ -31,7 +31,7 @@ def test_parse_site_detail_request() -> None:
 
 
 def test_parse_status_update_request() -> None:
-    intent = parse_natural_language_intent("把 example.com 标为已处理")
+    intent = parse_natural_language_intent("把 admin.example.com 标为已处理")
 
     assert intent is not None
     assert intent.name == "status"
@@ -75,7 +75,7 @@ def test_coerce_ai_intent_with_notes() -> None:
     intent = coerce_ai_intent(
         {
             "intent": "status",
-            "domain": "example.com",
+            "domain": "admin.example.com",
             "status": "已处理",
             "notes": "全局控制错误登录次数无法爆破",
             "confidence": 0.9,

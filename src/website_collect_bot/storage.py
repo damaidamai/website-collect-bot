@@ -5,6 +5,7 @@ from pathlib import Path
 
 import aiosqlite
 
+from website_collect_bot.extract import canonical_site_key
 from website_collect_bot.models import SiteRecord, SiteStatus
 
 
@@ -76,6 +77,7 @@ class Storage:
                 );
                 """
             )
+            await self._merge_subdomain_sites(db)
             await db.commit()
 
     async def record_message(
@@ -270,6 +272,84 @@ class Storage:
             """,
             (site_id, old_status, new_status, reason, utc_now_iso()),
         )
+
+    async def _merge_subdomain_sites(self, db: aiosqlite.Connection) -> None:
+        rows = await db.execute_fetchall(
+            """
+            SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at
+            FROM sites
+            ORDER BY first_seen_at ASC
+            """
+        )
+        for row in rows:
+            site = row_to_site(row)
+            site_key = canonical_site_key(site.domain)
+            if site_key == site.domain:
+                continue
+
+            target_row = await self._get_site_row(db, site_key)
+            if target_row is None:
+                await db.execute("UPDATE sites SET domain = ? WHERE id = ?", (site_key, site.id))
+                continue
+
+            target = row_to_site(target_row)
+            merged_status = merge_status(target.status, site.status)
+            merged_notes = merge_text(
+                target.notes,
+                f"来自 {site.domain}：{site.notes or site.summary}".strip(),
+            )
+            merged_summary = target.summary or site.summary
+            await db.execute(
+                """
+                UPDATE sites
+                SET canonical_url = COALESCE(canonical_url, ?),
+                    title = COALESCE(title, ?),
+                    status = ?,
+                    summary = ?,
+                    notes = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    site.canonical_url,
+                    site.title,
+                    merged_status,
+                    merged_summary,
+                    merged_notes,
+                    max(target.updated_at, site.updated_at).isoformat(),
+                    target.id,
+                ),
+            )
+            await db.execute(
+                "UPDATE OR IGNORE site_messages SET site_id = ? WHERE site_id = ?",
+                (target.id, site.id),
+            )
+            await db.execute("DELETE FROM site_messages WHERE site_id = ?", (site.id,))
+            await db.execute("UPDATE site_events SET site_id = ? WHERE site_id = ?", (target.id, site.id))
+            await db.execute("UPDATE status_history SET site_id = ? WHERE site_id = ?", (target.id, site.id))
+            await db.execute("DELETE FROM sites WHERE id = ?", (site.id,))
+
+
+def merge_status(left: str, right: str) -> str:
+    priority = {
+        SiteStatus.TODO.value: 5,
+        SiteStatus.IN_PROGRESS.value: 4,
+        SiteStatus.PAUSED.value: 3,
+        SiteStatus.DONE.value: 2,
+        SiteStatus.NO_ACTION.value: 1,
+    }
+    return left if priority.get(left, 0) >= priority.get(right, 0) else right
+
+
+def merge_text(left: str, right: str) -> str:
+    right = right.strip()
+    if not right:
+        return left
+    if not left:
+        return right
+    if right in left:
+        return left
+    return f"{left}\n{right}"
 
 
 def row_to_site(row: aiosqlite.Row) -> SiteRecord:
