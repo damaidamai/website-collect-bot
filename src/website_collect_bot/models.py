@@ -28,6 +28,8 @@ STATUS_ALIASES = {
     "处理完": SiteStatus.DONE.value,
     "搁置": SiteStatus.PAUSED.value,
     "暂停": SiteStatus.PAUSED.value,
+    "放弃": SiteStatus.PAUSED.value,
+    "爆破不了": SiteStatus.PAUSED.value,
     "无需处理": SiteStatus.NO_ACTION.value,
     "不用处理": SiteStatus.NO_ACTION.value,
 }

@@ -12,6 +12,7 @@ from website_collect_bot.extract import canonical_site_key, extract_domains, nor
 from website_collect_bot.intent import (
     NaturalLanguageIntent,
     coerce_ai_intent,
+    find_status_in_text,
     list_title,
     parse_natural_language_intent,
     should_use_ai_intent,
@@ -90,14 +91,26 @@ class WebsiteCollectBot:
         if message is None or chat is None or not message.text:
             return
 
+        reply_context = message_reply_text(message)
+        intent_text = join_context(message.text, reply_context)
         intent = parse_natural_language_intent(message.text)
-        if intent is None and should_use_ai_intent(message.text, getattr(context.bot, "username", None)):
-            ai_intent = await self.deepseek.classify_bot_intent(message.text)
+        if intent is None:
+            reply_domains = extract_domains(reply_context)
+            reply_status = find_status_in_text(message.text)
+            if reply_domains and reply_status:
+                intent = NaturalLanguageIntent(
+                    "status",
+                    domain=canonical_site_key(reply_domains[0]),
+                    status=reply_status,
+                    notes=message.text,
+                )
+        if intent is None and should_use_ai_intent(intent_text, getattr(context.bot, "username", None)):
+            ai_intent = await self.deepseek.classify_bot_intent(intent_text)
             intent = coerce_ai_intent(ai_intent) if ai_intent else None
         if intent is not None and await self.handle_natural_language_intent(update, intent):
             return
 
-        domains = extract_domains(message.text)
+        domains = extract_domains(join_context(message.text, reply_context))
         domains_by_site = group_domains_by_site_key(domains)
         if not domains_by_site:
             return
@@ -116,7 +129,7 @@ class WebsiteCollectBot:
             recent = await self.storage.recent_site_messages(existing.id) if existing else []
             analysis = await self.deepseek.analyze_site_message(
                 site_key=site_key,
-                message_text=message.text,
+                message_text=analysis_message_text(message.text, reply_context),
                 related_domains=related_domains,
                 existing_summary=existing.summary if existing else "",
                 existing_status=existing.status if existing else "",
@@ -277,3 +290,26 @@ def group_domains_by_site_key(domains: list[str]) -> dict[str, list[str]]:
         if normalized not in grouped[site_key]:
             grouped[site_key].append(normalized)
     return grouped
+
+
+def message_reply_text(message: object) -> str:
+    reply_to_message = getattr(message, "reply_to_message", None)
+    if reply_to_message is None:
+        return ""
+    for attr in ("text", "caption"):
+        value = getattr(reply_to_message, attr, None)
+        if value:
+            return str(value)
+    return ""
+
+
+def join_context(message_text: str, reply_context: str) -> str:
+    if not reply_context:
+        return message_text
+    return f"{message_text}\n{reply_context}"
+
+
+def analysis_message_text(message_text: str, reply_context: str) -> str:
+    if not reply_context:
+        return message_text
+    return f"当前回复：{message_text}\n被回复的站点上下文：{reply_context}"

@@ -82,7 +82,7 @@ def should_use_ai_intent(text: str, bot_username: str | None = None) -> bool:
     return bool(
         re.search(
             r"(待办|待处理|没处理|处理中|已处理|完成|搁置|不用处理|无需处理|列表|清单|"
-            r"有哪些|有多少|查一下|看看|详情|摘要|状态|改成|改为|标为|设置为|帮助|怎么用)",
+            r"有哪些|有多少|查一下|看看|详情|摘要|状态|改成|改为|标为|设置为|帮助|怎么用|放弃|爆破不了)",
             cleaned,
         )
     )
@@ -106,6 +106,8 @@ def find_status_in_text(text: str) -> str | None:
         "处理完",
         "待办",
         "暂停",
+        "放弃",
+        "爆破不了",
         "doing",
         "done",
         "todo",
