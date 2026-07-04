@@ -1,16 +1,16 @@
 # Website Collect Bot 部署指南
 
-本项目已部署在 `hk2H4G` 服务器上，通过 Systemd 进行服务托管。
+本项目已部署在 `JP2C4G` 服务器上，通过 Systemd 进行服务托管。
 
 ---
 
 ## 1. 托管环境信息
 
-- **服务器 SSH 别名**：`hk2H4G` (配置在本地 `~/.ssh/config` 中)
-  - IP 地址：`156.247.41.174`
-  - SSH 端口：`22`
-  - SSH 用户：`root`
-- **服务器项目工作目录**：`/root/projects/website-collect-bot`
+- **服务器 SSH 别名**：`JP2C4G` (配置在本地 `~/.ssh/config` 中)
+  - IP 地址：`207.56.229.121`
+  - SSH 端口：`2221`
+  - SSH 用户：`damai`
+- **服务器项目工作目录**：`/home/damai/projects/website-collect-bot`
 - **运行环境**：`.venv` (Python 虚拟环境，Python 3.12)
 - **托管服务名称**：`website-collect-bot.service`
 
@@ -28,9 +28,10 @@
 1. 本地自动执行 `uv run pytest` 跑通单元测试。
 2. 检查本地是否有未提交的改动并要求先 commit。
 3. 执行 `git push origin main` 将修改推送至 GitHub 远端仓库。
-4. SSH 连接服务器 `hk2H4G` 执行 `git pull` 拉取最新代码。
-5. 在服务器上运行 `systemctl restart website-collect-bot.service` 重启机器人。
-6. 显示机器人服务的最新状态。
+4. SSH 连接服务器 `JP2C4G`，必要时 clone 项目，否则执行 `git pull` 拉取最新代码。
+5. 同步本地 `.env` 和 `data/` 到服务器。
+6. 在服务器上运行 `sudo systemctl restart website-collect-bot.service` 重启机器人。
+7. 显示机器人服务的最新状态。
 
 ---
 
@@ -48,23 +49,23 @@ git push origin main
 ### 第二步：SSH 登录服务器并更新代码
 ```bash
 # 登录服务器
-ssh hk2H4G
+ssh JP2C4G
 
 # 进入项目工作目录并拉取最新代码
-cd /root/projects/website-collect-bot
+cd /home/damai/projects/website-collect-bot
 git pull
 ```
 
 ### 第三步：重启 Telegram 机器人服务
 ```bash
-systemctl restart website-collect-bot.service
+sudo systemctl restart website-collect-bot.service
 ```
 
 ### 第四步：检查服务运行状态
 ```bash
 # 检查运行状态（状态应为 active (running)）
-systemctl status website-collect-bot.service
+sudo systemctl status website-collect-bot.service
 
 # 查看实时运行日志
-journalctl -u website-collect-bot.service -f -n 50
+sudo journalctl -u website-collect-bot.service -f -n 50
 ```
