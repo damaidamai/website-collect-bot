@@ -8,6 +8,7 @@ SERVER="JP2C4G"
 REMOTE_DIR="/home/damai/projects/website-collect-bot"
 REPO_URL="git@github.com:damaidamai/website-collect-bot.git"
 SERVICE_NAME="website-collect-bot.service"
+WEB_SERVICE_NAME="website-collect-web.service"
 
 echo "========== [1/5] 运行本地单元测试 =========="
 uv run pytest
@@ -66,6 +67,24 @@ Environment=PYTHONUNBUFFERED=1
 [Install]
 WantedBy=multi-user.target
 EOF
+cat > /tmp/${WEB_SERVICE_NAME} <<EOF
+[Unit]
+Description=Website Collect Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${REMOTE_DIR}
+ExecStart=${REMOTE_DIR}/.venv/bin/website-collect-web
+Restart=always
+RestartSec=5
+User=damai
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+EOF
 cat > /tmp/website-collect-bot-sqlite-backup.service <<EOF
 [Unit]
 Description=Commit Website Collect Bot SQLite database to GitHub
@@ -88,17 +107,21 @@ Persistent=true
 WantedBy=timers.target
 EOF
 sudo mv /tmp/${SERVICE_NAME} /etc/systemd/system/${SERVICE_NAME}
+sudo mv /tmp/${WEB_SERVICE_NAME} /etc/systemd/system/${WEB_SERVICE_NAME}
 sudo mv /tmp/website-collect-bot-sqlite-backup.service /etc/systemd/system/website-collect-bot-sqlite-backup.service
 sudo mv /tmp/website-collect-bot-sqlite-backup.timer /etc/systemd/system/website-collect-bot-sqlite-backup.timer
 sudo systemctl daemon-reload
 sudo systemctl enable ${SERVICE_NAME}
+sudo systemctl enable ${WEB_SERVICE_NAME}
 sudo systemctl enable --now website-collect-bot-sqlite-backup.timer
 "
 
 echo "========== [4/5] 远程重启 website-collect-bot 服务 =========="
 ssh "${SERVER}" "sudo systemctl restart ${SERVICE_NAME}"
+ssh "${SERVER}" "sudo systemctl restart ${WEB_SERVICE_NAME}"
 
 echo "========== [5/5] 检查远程服务运行状态 =========="
 ssh "${SERVER}" "sudo systemctl status ${SERVICE_NAME} --no-pager"
+ssh "${SERVER}" "sudo systemctl status ${WEB_SERVICE_NAME} --no-pager"
 
 echo "🎉 一键部署已成功完成！"

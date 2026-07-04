@@ -15,8 +15,16 @@ class Settings(BaseSettings):
 
     database_path: Path = Field(default=Path("data/sites.sqlite3"), alias="DATABASE_PATH")
     bot_reply_mode: str = Field(default="brief", alias="BOT_REPLY_MODE")
+    web_host: str = Field(default="0.0.0.0", alias="WEB_HOST")
+    web_port: int = Field(default=8080, alias="WEB_PORT")
+    web_dashboard_token: str = Field(default="", alias="WEB_DASHBOARD_TOKEN")
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
+    )
 
     @field_validator("telegram_allowed_chat_id", mode="before")
     @classmethod

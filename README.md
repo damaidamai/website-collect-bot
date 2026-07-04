@@ -32,6 +32,15 @@ uv sync
 uv run website-collect-bot
 ```
 
+只读 Web 面板：
+
+```bash
+uv run website-collect-web
+```
+
+默认监听 `0.0.0.0:8080`，可通过 `.env` 中的 `WEB_HOST`、`WEB_PORT` 调整。
+如设置 `WEB_DASHBOARD_TOKEN`，首次访问使用 `/?token=<token>`，验证后浏览器会保存 Cookie。
+
 ## 命令
 
 - `/list`：查看全部网站

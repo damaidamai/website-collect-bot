@@ -231,6 +231,126 @@ class Storage:
             rows = await db.execute_fetchall(query, params)
             return [row_to_site(row) for row in rows]
 
+    async def status_counts(self) -> dict[str, int]:
+        async with aiosqlite.connect(self.database_path) as db:
+            rows = await db.execute_fetchall(
+                "SELECT status, COUNT(*) FROM sites GROUP BY status ORDER BY status"
+            )
+            return {str(row[0]): int(row[1]) for row in rows}
+
+    async def search_sites(
+        self,
+        status: str | None = None,
+        query: str | None = None,
+        limit: int = 100,
+    ) -> list[SiteRecord]:
+        sql = """
+            SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at
+            FROM sites
+        """
+        clauses: list[str] = []
+        params: list[object] = []
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if query:
+            like = f"%{query.strip()}%"
+            clauses.append(
+                """
+                (
+                    domain LIKE ?
+                    OR canonical_url LIKE ?
+                    OR title LIKE ?
+                    OR summary LIKE ?
+                    OR notes LIKE ?
+                )
+                """
+            )
+            params.extend([like, like, like, like, like])
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY updated_at DESC LIMIT ?"
+        params.append(limit)
+
+        async with aiosqlite.connect(self.database_path) as db:
+            rows = await db.execute_fetchall(sql, tuple(params))
+            return [row_to_site(row) for row in rows]
+
+    async def get_site_by_id(self, site_id: int) -> SiteRecord | None:
+        async with aiosqlite.connect(self.database_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at
+                FROM sites
+                WHERE id = ?
+                """,
+                (site_id,),
+            )
+            row = await cursor.fetchone()
+            return row_to_site(row) if row else None
+
+    async def site_messages(self, site_id: int, limit: int = 50) -> list[dict[str, object]]:
+        async with aiosqlite.connect(self.database_path) as db:
+            rows = await db.execute_fetchall(
+                """
+                SELECT m.telegram_message_id, m.sender_name, m.message_text, m.created_at
+                FROM messages m
+                JOIN site_messages sm ON sm.message_id = m.id
+                WHERE sm.site_id = ?
+                ORDER BY m.created_at DESC
+                LIMIT ?
+                """,
+                (site_id, limit),
+            )
+            return [
+                {
+                    "telegram_message_id": int(row[0]),
+                    "sender_name": row[1] or "",
+                    "message_text": str(row[2] or ""),
+                    "created_at": str(row[3]),
+                }
+                for row in rows
+            ]
+
+    async def site_events(self, site_id: int, limit: int = 50) -> list[dict[str, str]]:
+        async with aiosqlite.connect(self.database_path) as db:
+            rows = await db.execute_fetchall(
+                """
+                SELECT event_type, content, created_at
+                FROM site_events
+                WHERE site_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (site_id, limit),
+            )
+            return [
+                {"event_type": str(row[0]), "content": str(row[1] or ""), "created_at": str(row[2])}
+                for row in rows
+            ]
+
+    async def status_history(self, site_id: int, limit: int = 50) -> list[dict[str, str]]:
+        async with aiosqlite.connect(self.database_path) as db:
+            rows = await db.execute_fetchall(
+                """
+                SELECT old_status, new_status, reason, created_at
+                FROM status_history
+                WHERE site_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (site_id, limit),
+            )
+            return [
+                {
+                    "old_status": str(row[0] or ""),
+                    "new_status": str(row[1]),
+                    "reason": str(row[2] or ""),
+                    "created_at": str(row[3]),
+                }
+                for row in rows
+            ]
+
     async def recent_site_messages(self, site_id: int, limit: int = 8) -> list[str]:
         async with aiosqlite.connect(self.database_path) as db:
             rows = await db.execute_fetchall(

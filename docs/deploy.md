@@ -13,6 +13,7 @@
 - **服务器项目工作目录**：`/home/damai/projects/website-collect-bot`
 - **运行环境**：`.venv` (Python 虚拟环境，Python 3.12)
 - **托管服务名称**：`website-collect-bot.service`
+- **Web 面板服务**：`website-collect-web.service`，默认监听 `8080`
 - **SQLite 自动备份**：`website-collect-bot-sqlite-backup.timer` 每日提交并推送 `data/sites.sqlite3`
 
 ---
@@ -32,7 +33,8 @@
 4. SSH 连接服务器 `JP2C4G`，必要时 clone 项目，否则执行 `git pull` 拉取最新代码。
 5. 同步本地 `.env` 和 SQLite 备份脚本到服务器。
 6. 在服务器上运行 `sudo systemctl restart website-collect-bot.service` 重启机器人。
-7. 显示机器人服务的最新状态。
+7. 在服务器上运行 `sudo systemctl restart website-collect-web.service` 重启 Web 面板。
+8. 显示机器人和 Web 面板服务的最新状态。
 
 ---
 
@@ -60,15 +62,30 @@ git pull
 ### 第三步：重启 Telegram 机器人服务
 ```bash
 sudo systemctl restart website-collect-bot.service
+sudo systemctl restart website-collect-web.service
 ```
 
 ### 第四步：检查服务运行状态
 ```bash
 # 检查运行状态（状态应为 active (running)）
 sudo systemctl status website-collect-bot.service
+sudo systemctl status website-collect-web.service
 
 # 查看实时运行日志
 sudo journalctl -u website-collect-bot.service -f -n 50
+sudo journalctl -u website-collect-web.service -f -n 50
+```
+
+### Web 面板
+
+```bash
+curl http://127.0.0.1:8080/healthz
+```
+
+如 `.env` 配置了 `WEB_DASHBOARD_TOKEN`，浏览器首次访问：
+
+```text
+http://207.56.229.121:8080/?token=<WEB_DASHBOARD_TOKEN>
 ```
 
 ### SQLite 每日备份
