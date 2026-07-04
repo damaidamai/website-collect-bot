@@ -35,7 +35,7 @@ fi
 "
 ssh "${SERVER}" "mkdir -p \"${REMOTE_DIR}/data\""
 scp .env "${SERVER}:${REMOTE_DIR}/.env"
-scp data/sites.sqlite3 "${SERVER}:${REMOTE_DIR}/data/sites.sqlite3"
+scp scripts/commit_sqlite_to_github.sh "${SERVER}:${REMOTE_DIR}/scripts/commit_sqlite_to_github.sh"
 ssh "${SERVER}" "
 set -e
 cd \"${REMOTE_DIR}\"
@@ -47,6 +47,7 @@ else
     UV_BIN=\"/home/damai/.local/bin/uv\"
 fi
 \${UV_BIN} sync --frozen
+chmod +x scripts/commit_sqlite_to_github.sh
 cat > /tmp/${SERVICE_NAME} <<EOF
 [Unit]
 Description=Website Collect Telegram Bot
@@ -65,9 +66,33 @@ Environment=PYTHONUNBUFFERED=1
 [Install]
 WantedBy=multi-user.target
 EOF
+cat > /tmp/website-collect-bot-sqlite-backup.service <<EOF
+[Unit]
+Description=Commit Website Collect Bot SQLite database to GitHub
+
+[Service]
+Type=oneshot
+User=damai
+WorkingDirectory=${REMOTE_DIR}
+ExecStart=${REMOTE_DIR}/scripts/commit_sqlite_to_github.sh
+EOF
+cat > /tmp/website-collect-bot-sqlite-backup.timer <<EOF
+[Unit]
+Description=Daily Website Collect Bot SQLite GitHub backup
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
 sudo mv /tmp/${SERVICE_NAME} /etc/systemd/system/${SERVICE_NAME}
+sudo mv /tmp/website-collect-bot-sqlite-backup.service /etc/systemd/system/website-collect-bot-sqlite-backup.service
+sudo mv /tmp/website-collect-bot-sqlite-backup.timer /etc/systemd/system/website-collect-bot-sqlite-backup.timer
 sudo systemctl daemon-reload
 sudo systemctl enable ${SERVICE_NAME}
+sudo systemctl enable --now website-collect-bot-sqlite-backup.timer
 "
 
 echo "========== [4/5] 远程重启 website-collect-bot 服务 =========="

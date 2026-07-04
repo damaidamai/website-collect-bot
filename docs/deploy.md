@@ -13,6 +13,7 @@
 - **服务器项目工作目录**：`/home/damai/projects/website-collect-bot`
 - **运行环境**：`.venv` (Python 虚拟环境，Python 3.12)
 - **托管服务名称**：`website-collect-bot.service`
+- **SQLite 自动备份**：`website-collect-bot-sqlite-backup.timer` 每日提交并推送 `data/sites.sqlite3`
 
 ---
 
@@ -29,7 +30,7 @@
 2. 检查本地是否有未提交的改动并要求先 commit。
 3. 执行 `git push origin main` 将修改推送至 GitHub 远端仓库。
 4. SSH 连接服务器 `JP2C4G`，必要时 clone 项目，否则执行 `git pull` 拉取最新代码。
-5. 同步本地 `.env` 和 `data/` 到服务器。
+5. 同步本地 `.env` 和 SQLite 备份脚本到服务器。
 6. 在服务器上运行 `sudo systemctl restart website-collect-bot.service` 重启机器人。
 7. 显示机器人服务的最新状态。
 
@@ -68,4 +69,11 @@ sudo systemctl status website-collect-bot.service
 
 # 查看实时运行日志
 sudo journalctl -u website-collect-bot.service -f -n 50
+```
+
+### SQLite 每日备份
+```bash
+sudo systemctl status website-collect-bot-sqlite-backup.timer
+sudo systemctl list-timers website-collect-bot-sqlite-backup.timer
+sudo systemctl start website-collect-bot-sqlite-backup.service
 ```
