@@ -6,6 +6,11 @@ def test_extract_domains_from_urls_and_plain_domains() -> None:
     assert extract_domains(text) == ["example.com", "demo.org"]
 
 
+def test_extract_domains_does_not_match_partial_suffixes() -> None:
+    text = "https://admin.dev.waypay.live https://ib-toushin.kitagin.co.jp/sp_img/IBGate"
+    assert extract_domains(text) == ["admin.dev.waypay.live", "ib-toushin.kitagin.co.jp"]
+
+
 def test_normalize_domain_strips_www_and_port() -> None:
     assert normalize_domain("https://www.example.com:443/path") == "example.com"
 
@@ -19,3 +24,4 @@ def test_canonical_site_key_groups_subdomains() -> None:
     assert canonical_site_key("agent.admin.example.com") == "example.com"
     assert canonical_site_key("www.example.com") == "example.com"
     assert canonical_site_key("admin.example.com.cn") == "example.com.cn"
+    assert canonical_site_key("56.126.52.121") == "56.126.52.121"

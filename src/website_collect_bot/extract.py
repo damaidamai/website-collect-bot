@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import re
+from ipaddress import ip_address
 from urllib.parse import urlparse
 
 
 URL_RE = re.compile(r"https?://[^\s<>()\"']+", re.IGNORECASE)
 DOMAIN_RE = re.compile(
-    r"(?<!@)\b(?:[a-zA-Z0-9-]{1,63}\.)+(?:com|net|org|io|ai|co|cn|dev|app|xyz|info|biz|me|site|top|cc|tv)\b",
+    r"(?<!@)\b(?:[a-zA-Z0-9-]{1,63}\.)+(?:com|net|org|io|ai|co|cn|dev|app|xyz|info|biz|me|site|top|cc|tv)\b(?!\.[a-zA-Z0-9-])",
     re.IGNORECASE,
 )
 
@@ -47,6 +48,12 @@ MULTI_PART_SUFFIXES = {
 
 def canonical_site_key(domain: str) -> str:
     normalized = normalize_domain(domain)
+    try:
+        ip_address(normalized)
+        return normalized
+    except ValueError:
+        pass
+
     parts = [part for part in normalized.split(".") if part]
     if len(parts) <= 2:
         return normalized
