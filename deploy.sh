@@ -33,8 +33,9 @@ if ! command -v uv >/dev/null 2>&1 && [ ! -x /home/damai/.local/bin/uv ]; then
     curl -LsSf https://astral.sh/uv/install.sh | sh
 fi
 "
-rsync -az .env "${SERVER}:${REMOTE_DIR}/.env"
-rsync -az data/ "${SERVER}:${REMOTE_DIR}/data/"
+ssh "${SERVER}" "mkdir -p \"${REMOTE_DIR}/data\""
+scp .env "${SERVER}:${REMOTE_DIR}/.env"
+scp data/sites.sqlite3 "${SERVER}:${REMOTE_DIR}/data/sites.sqlite3"
 ssh "${SERVER}" "
 set -e
 cd \"${REMOTE_DIR}\"
