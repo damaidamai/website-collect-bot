@@ -29,7 +29,7 @@ if [ ! -d \"${REMOTE_DIR}/.git\" ]; then
 else
     cd \"${REMOTE_DIR}\" && git pull --ff-only
 fi
-if ! command -v uv >/dev/null 2>&1; then
+if ! command -v uv >/dev/null 2>&1 && [ ! -x /home/damai/.local/bin/uv ]; then
     curl -LsSf https://astral.sh/uv/install.sh | sh
 fi
 "
