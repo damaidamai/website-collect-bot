@@ -251,28 +251,50 @@ def page(title: str, content: str) -> str:
     button.warn {{ border-color: var(--warn); background: var(--warn); }}
     button.ok {{ border-color: var(--ok); background: var(--ok); }}
     .actions {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }}
-    .quick-actions {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }}
+    .quick-actions {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      align-items: center;
+      min-width: 220px;
+    }}
+    .quick-actions form {{ margin: 0; }}
     .quick-actions button {{
+      width: 100%;
       min-height: 30px;
-      padding: 4px 8px;
+      padding: 4px 7px;
       border-radius: 8px;
-      font-size: 13px;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.2;
+      white-space: nowrap;
     }}
     .edit-form {{ display: grid; gap: 10px; }}
     .edit-form label {{ display: grid; gap: 5px; color: var(--muted); font-size: 14px; }}
     .panel {{ overflow: hidden; }}
-    table {{ width: 100%; border-collapse: collapse; background: var(--panel); }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      table-layout: fixed;
+    }}
+    .sites-table col:nth-child(1) {{ width: 33%; }}
+    .sites-table col:nth-child(2) {{ width: 8%; }}
+    .sites-table col:nth-child(3) {{ width: 31%; }}
+    .sites-table col:nth-child(4) {{ width: 8%; }}
+    .sites-table col:nth-child(5) {{ width: 20%; }}
     th, td {{
       padding: 12px 14px;
       border-bottom: 1px solid var(--line);
       text-align: left;
-      vertical-align: top;
+      vertical-align: middle;
       font-size: 14px;
     }}
     th {{ color: var(--muted); font-weight: 600; background: #fbfcfd; }}
     tr:last-child td {{ border-bottom: 0; }}
     .domain {{ font-weight: 700; }}
-    .summary {{ max-width: 460px; color: #344054; }}
+    .summary {{ color: #344054; }}
+    .cell-action {{ padding-right: 10px; }}
     .status {{
       display: inline-flex;
       align-items: center;
@@ -308,6 +330,7 @@ def page(title: str, content: str) -> str:
       thead {{ display: none; }}
       tr {{ border-bottom: 1px solid var(--line); padding: 10px 0; }}
       td {{ border-bottom: 0; padding: 5px 14px; }}
+      .quick-actions {{ grid-template-columns: repeat(3, minmax(82px, 1fr)); min-width: 0; }}
     }}
   </style>
 </head>
@@ -335,7 +358,14 @@ def render_index(
     table = (
         f"""
         <div class="panel">
-          <table>
+          <table class="sites-table">
+            <colgroup>
+              <col>
+              <col>
+              <col>
+              <col>
+              <col>
+            </colgroup>
             <thead>
               <tr>
                 <th>网站</th>
@@ -496,7 +526,7 @@ def render_site_row(site: SiteRecord, return_to: str) -> str:
       <td>{status_badge(site.status)}</td>
       <td class="summary">{escape(site.summary or site.notes or "-")}</td>
       <td>{fmt_dt(site.updated_at)}</td>
-      <td>
+      <td class="cell-action">
         <div class="quick-actions">
           {status_form(site.id, SiteStatus.DONE.value, "已处理", return_to, "ok")}
           {status_form(site.id, SiteStatus.NO_ACTION.value, "无需处理", return_to, "secondary")}
