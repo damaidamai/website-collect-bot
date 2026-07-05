@@ -210,6 +210,55 @@ class Storage:
             updated = await self._get_site_row(db, domain)
             return row_to_site(updated) if updated else None
 
+    async def update_site_by_id(
+        self,
+        site_id: int,
+        status: str | None = None,
+        summary: str | None = None,
+        notes: str | None = None,
+        reason: str | None = None,
+    ) -> SiteRecord | None:
+        now = utc_now_iso()
+        async with aiosqlite.connect(self.database_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at
+                FROM sites
+                WHERE id = ?
+                """,
+                (site_id,),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+
+            site = row_to_site(row)
+            next_status = status if status is not None else site.status
+            next_summary = summary if summary is not None else site.summary
+            next_notes = notes if notes is not None else site.notes
+
+            await db.execute(
+                """
+                UPDATE sites
+                SET status = ?, summary = ?, notes = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (next_status, next_summary, next_notes, now, site.id),
+            )
+            if next_status != site.status:
+                await self._insert_status_history(db, site.id, site.status, next_status, reason)
+            if next_summary != site.summary or next_notes != site.notes:
+                await db.execute(
+                    """
+                    INSERT INTO site_events (site_id, event_type, content, created_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (site.id, "web_update", reason or "Web 面板更新摘要/备注", now),
+                )
+            await db.commit()
+            updated = await self.get_site_by_id(site.id)
+            return updated
+
     async def get_site(self, domain: str) -> SiteRecord | None:
         async with aiosqlite.connect(self.database_path) as db:
             row = await self._get_site_row(db, domain)

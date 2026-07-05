@@ -6,7 +6,7 @@ from html import escape
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from website_collect_bot.config import Settings, get_settings
 from website_collect_bot.models import SiteRecord, SiteStatus, normalize_status
@@ -71,7 +71,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/", response_class=HTMLResponse)
-    async def index(status: str | None = None, q: str | None = None) -> HTMLResponse:
+    async def index(
+        request: Request,
+        status: str | None = None,
+        q: str | None = None,
+    ) -> HTMLResponse:
         selected_status = normalize_status(status) if status else None
         if status and selected_status is None:
             raise HTTPException(status_code=400, detail="unknown status")
@@ -85,18 +89,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             total=total,
             selected_status=selected_status,
             query=q or "",
+            return_to=current_path(request),
         )
         return HTMLResponse(page("网站记录", content))
 
     @app.get("/sites/{site_id}", response_class=HTMLResponse)
-    async def detail(site_id: int) -> HTMLResponse:
+    async def detail(request: Request, site_id: int) -> HTMLResponse:
         site = await storage.get_site_by_id(site_id)
         if site is None:
             raise HTTPException(status_code=404, detail="site not found")
         messages = await storage.site_messages(site_id)
         events = await storage.site_events(site_id)
         history = await storage.status_history(site_id)
-        return HTMLResponse(page(site.domain, render_detail(site, messages, events, history)))
+        return HTMLResponse(
+            page(site.domain, render_detail(site, messages, events, history, current_path(request)))
+        )
+
+    @app.post("/sites/{site_id}/status")
+    async def update_status(site_id: int, request: Request) -> RedirectResponse:
+        form = await request.form()
+        status = normalize_status(str(form.get("status", "")))
+        if status is None:
+            raise HTTPException(status_code=400, detail="unknown status")
+
+        site = await storage.update_site_by_id(
+            site_id,
+            status=status,
+            reason="Web 面板手动更新状态",
+        )
+        if site is None:
+            raise HTTPException(status_code=404, detail="site not found")
+        return RedirectResponse(safe_return_to(form.get("return_to"), f"/sites/{site_id}"), status_code=303)
+
+    @app.post("/sites/{site_id}/content")
+    async def update_content(site_id: int, request: Request) -> RedirectResponse:
+        form = await request.form()
+        summary = str(form.get("summary", "")).strip()
+        notes = str(form.get("notes", "")).strip()
+        site = await storage.update_site_by_id(
+            site_id,
+            summary=summary,
+            notes=notes,
+            reason="Web 面板更新摘要/备注",
+        )
+        if site is None:
+            raise HTTPException(status_code=404, detail="site not found")
+        return RedirectResponse(safe_return_to(form.get("return_to"), f"/sites/{site_id}"), status_code=303)
 
     return app
 
@@ -188,6 +226,16 @@ def page(title: str, content: str) -> str:
       font: inherit;
       background: var(--panel);
     }}
+    textarea {{
+      width: 100%;
+      min-height: 110px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font: inherit;
+      background: var(--panel);
+    }}
     button {{
       min-height: 36px;
       border: 1px solid var(--accent);
@@ -198,6 +246,20 @@ def page(title: str, content: str) -> str:
       font: inherit;
       cursor: pointer;
     }}
+    button.secondary {{ border-color: var(--line); background: var(--panel); color: var(--text); }}
+    button.danger {{ border-color: var(--danger); background: var(--danger); }}
+    button.warn {{ border-color: var(--warn); background: var(--warn); }}
+    button.ok {{ border-color: var(--ok); background: var(--ok); }}
+    .actions {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }}
+    .quick-actions {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }}
+    .quick-actions button {{
+      min-height: 30px;
+      padding: 4px 8px;
+      border-radius: 8px;
+      font-size: 13px;
+    }}
+    .edit-form {{ display: grid; gap: 10px; }}
+    .edit-form label {{ display: grid; gap: 5px; color: var(--muted); font-size: 14px; }}
     .panel {{ overflow: hidden; }}
     table {{ width: 100%; border-collapse: collapse; background: var(--panel); }}
     th, td {{
@@ -263,12 +325,13 @@ def render_index(
     total: int,
     selected_status: str | None,
     query: str,
+    return_to: str,
 ) -> str:
     stats = [stat_card("全部", total)]
     stats.extend(stat_card(status, counts.get(status, 0)) for status in STATUS_ORDER)
     tabs = [tab_link("全部", None, selected_status, query)]
     tabs.extend(tab_link(status, status, selected_status, query) for status in STATUS_ORDER)
-    rows = "\n".join(render_site_row(site) for site in sites)
+    rows = "\n".join(render_site_row(site, return_to) for site in sites)
     table = (
         f"""
         <div class="panel">
@@ -279,6 +342,7 @@ def render_index(
                 <th>状态</th>
                 <th>摘要</th>
                 <th>更新时间</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>{rows}</tbody>
@@ -319,6 +383,7 @@ def render_detail(
     messages: list[dict[str, object]],
     events: list[dict[str, str]],
     history: list[dict[str, str]],
+    return_to: str,
 ) -> str:
     message_items = "".join(
         f"""
@@ -358,6 +423,16 @@ def render_detail(
       {status_badge(site.status)}
     </div>
     <section class="panel section">
+      <h2>操作</h2>
+      <div class="actions">
+        {status_form(site.id, SiteStatus.IN_PROGRESS.value, "标记处理中", return_to, "warn")}
+        {status_form(site.id, SiteStatus.DONE.value, "标记已处理", return_to, "ok")}
+        {status_form(site.id, SiteStatus.NO_ACTION.value, "标记无需处理", return_to, "secondary")}
+        {status_form(site.id, SiteStatus.PAUSED.value, "搁置", return_to, "secondary")}
+        {status_form(site.id, SiteStatus.TODO.value, "退回待处理", return_to, "danger")}
+      </div>
+    </section>
+    <section class="panel section">
       <h2>基本信息</h2>
       <div class="kv">
         <div class="muted">URL</div>
@@ -373,6 +448,21 @@ def render_detail(
         <div class="muted">备注</div>
         <div class="text-block">{escape(site.notes or "-")}</div>
       </div>
+    </section>
+    <section class="panel section" style="margin-top: 16px;">
+      <h2>更新摘要</h2>
+      <form class="edit-form" method="post" action="/sites/{site.id}/content">
+        <input type="hidden" name="return_to" value="{escape(return_to)}">
+        <label>
+          摘要
+          <textarea name="summary">{escape(site.summary)}</textarea>
+        </label>
+        <label>
+          备注
+          <textarea name="notes">{escape(site.notes)}</textarea>
+        </label>
+        <div><button type="submit">保存摘要和备注</button></div>
+      </form>
     </section>
     <section class="grid" style="margin-top: 16px;">
       <div class="panel section">
@@ -396,7 +486,7 @@ def render_detail(
     """
 
 
-def render_site_row(site: SiteRecord) -> str:
+def render_site_row(site: SiteRecord, return_to: str) -> str:
     return f"""
     <tr>
       <td>
@@ -406,6 +496,13 @@ def render_site_row(site: SiteRecord) -> str:
       <td>{status_badge(site.status)}</td>
       <td class="summary">{escape(site.summary or site.notes or "-")}</td>
       <td>{fmt_dt(site.updated_at)}</td>
+      <td>
+        <div class="quick-actions">
+          {status_form(site.id, SiteStatus.DONE.value, "已处理", return_to, "ok")}
+          {status_form(site.id, SiteStatus.NO_ACTION.value, "无需处理", return_to, "secondary")}
+          {status_form(site.id, SiteStatus.IN_PROGRESS.value, "处理中", return_to, "warn")}
+        </div>
+      </td>
     </tr>
     """
 
@@ -429,6 +526,16 @@ def tab_link(label: str, value: str | None, selected: str | None, query: str) ->
     return f'<a class="tab{active}" href="{href}">{escape(label)}</a>'
 
 
+def status_form(site_id: int, status: str, label: str, return_to: str, button_class: str) -> str:
+    return f"""
+    <form method="post" action="/sites/{site_id}/status">
+      <input type="hidden" name="status" value="{escape(status)}">
+      <input type="hidden" name="return_to" value="{escape(return_to)}">
+      <button class="{escape(button_class)}" type="submit">{escape(label)}</button>
+    </form>
+    """
+
+
 def status_badge(status: str) -> str:
     class_name = {
         SiteStatus.TODO.value: "todo",
@@ -448,3 +555,18 @@ def site_link(site: SiteRecord) -> str:
 
 def fmt_dt(value: datetime) -> str:
     return value.strftime("%Y-%m-%d %H:%M")
+
+
+def current_path(request: Request) -> str:
+    params = [(key, value) for key, value in request.query_params.multi_items() if key != "token"]
+    if not params:
+        return request.url.path
+    return f"{request.url.path}?{urlencode(params)}"
+
+
+def safe_return_to(value: object, fallback: str) -> str:
+    if not isinstance(value, str):
+        return fallback
+    if not value.startswith("/") or value.startswith("//"):
+        return fallback
+    return value
