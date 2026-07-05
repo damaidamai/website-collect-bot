@@ -254,15 +254,15 @@ def page(title: str, content: str) -> str:
     .quick-actions {{
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 6px;
+      gap: 5px;
       align-items: center;
-      min-width: 220px;
+      min-width: 0;
     }}
     .quick-actions form {{ margin: 0; }}
     .quick-actions button {{
       width: 100%;
       min-height: 30px;
-      padding: 4px 7px;
+      padding: 4px 6px;
       border-radius: 8px;
       font-size: 12px;
       font-weight: 600;
@@ -278,11 +278,11 @@ def page(title: str, content: str) -> str:
       background: var(--panel);
       table-layout: fixed;
     }}
-    .sites-table col:nth-child(1) {{ width: 33%; }}
+    .sites-table col:nth-child(1) {{ width: 30%; }}
     .sites-table col:nth-child(2) {{ width: 8%; }}
-    .sites-table col:nth-child(3) {{ width: 31%; }}
+    .sites-table col:nth-child(3) {{ width: 28%; }}
     .sites-table col:nth-child(4) {{ width: 8%; }}
-    .sites-table col:nth-child(5) {{ width: 20%; }}
+    .sites-table col:nth-child(5) {{ width: 26%; }}
     th, td {{
       padding: 12px 14px;
       border-bottom: 1px solid var(--line);
