@@ -76,8 +76,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         status: str | None = None,
         q: str | None = None,
     ) -> HTMLResponse:
-        selected_status = normalize_status(status) if status else None
-        if status and selected_status is None:
+        selected_status = selected_status_from_query(status)
+        if status and selected_status is None and status.strip().lower() not in {"all", "全部"}:
             raise HTTPException(status_code=400, detail="unknown status")
 
         counts = await storage.status_counts()
@@ -172,21 +172,21 @@ def page(title: str, content: str) -> str:
     }}
     a {{ color: var(--accent); text-decoration: none; }}
     a:hover {{ text-decoration: underline; }}
-    .shell {{ max-width: 1180px; margin: 0 auto; padding: 24px; }}
+    .shell {{ max-width: 1220px; margin: 0 auto; padding: 18px 20px; }}
     .topbar {{
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 18px;
+      gap: 12px;
+      margin-bottom: 12px;
     }}
-    .brand {{ font-size: 22px; font-weight: 700; letter-spacing: 0; }}
+    .brand {{ font-size: 21px; font-weight: 700; letter-spacing: 0; }}
     .muted {{ color: var(--muted); }}
     .stats {{
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 10px;
-      margin: 16px 0;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 8px;
+      margin: 10px 0 12px;
     }}
     .stat, .panel, .empty {{
       background: var(--panel);
@@ -194,21 +194,21 @@ def page(title: str, content: str) -> str:
       border-radius: 8px;
       box-shadow: var(--shadow);
     }}
-    .stat {{ padding: 12px 14px; }}
-    .stat strong {{ display: block; font-size: 24px; }}
+    .stat {{ padding: 8px 12px; }}
+    .stat strong {{ display: block; font-size: 22px; line-height: 1.15; }}
     .filters {{
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
+      gap: 8px;
       align-items: center;
-      margin: 16px 0;
+      margin: 10px 0 12px;
     }}
-    .tabs {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+    .tabs {{ display: flex; flex-wrap: wrap; gap: 7px; }}
     .tab {{
       display: inline-flex;
       align-items: center;
-      min-height: 34px;
-      padding: 6px 10px;
+      min-height: 31px;
+      padding: 5px 9px;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: var(--panel);
@@ -216,13 +216,13 @@ def page(title: str, content: str) -> str:
       font-size: 14px;
     }}
     .tab.active {{ border-color: var(--accent); background: var(--accent-soft); color: #0b5b54; }}
-    form.search {{ display: flex; gap: 8px; margin-left: auto; }}
+    form.search {{ display: flex; gap: 7px; margin-left: auto; }}
     input[type="search"] {{
       width: min(320px, 60vw);
-      min-height: 36px;
+      min-height: 34px;
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 7px 10px;
+      padding: 6px 10px;
       font: inherit;
       background: var(--panel);
     }}
@@ -237,10 +237,10 @@ def page(title: str, content: str) -> str:
       background: var(--panel);
     }}
     button {{
-      min-height: 36px;
+      min-height: 34px;
       border: 1px solid var(--accent);
       border-radius: 8px;
-      padding: 7px 12px;
+      padding: 6px 11px;
       background: var(--accent);
       color: #fff;
       font: inherit;
@@ -261,8 +261,8 @@ def page(title: str, content: str) -> str:
     .quick-actions form {{ margin: 0; }}
     .quick-actions button {{
       width: 100%;
-      min-height: 30px;
-      padding: 4px 6px;
+      min-height: 28px;
+      padding: 3px 6px;
       border-radius: 8px;
       font-size: 12px;
       font-weight: 600;
@@ -284,11 +284,11 @@ def page(title: str, content: str) -> str:
     .sites-table col:nth-child(4) {{ width: 8%; }}
     .sites-table col:nth-child(5) {{ width: 26%; }}
     th, td {{
-      padding: 12px 14px;
+      padding: 9px 12px;
       border-bottom: 1px solid var(--line);
       text-align: left;
       vertical-align: middle;
-      font-size: 14px;
+      font-size: 13px;
     }}
     th {{ color: var(--muted); font-weight: 600; background: #fbfcfd; }}
     tr:last-child td {{ border-bottom: 0; }}
@@ -298,10 +298,10 @@ def page(title: str, content: str) -> str:
     .status {{
       display: inline-flex;
       align-items: center;
-      min-height: 26px;
-      padding: 3px 8px;
+      min-height: 24px;
+      padding: 2px 7px;
       border-radius: 999px;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       white-space: nowrap;
       background: #eef2f6;
@@ -313,7 +313,7 @@ def page(title: str, content: str) -> str:
     .status.paused {{ background: #f2f4f7; color: #475467; }}
     .status.none {{ background: #dbeafe; color: var(--info); }}
     .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
-    .section {{ padding: 16px; }}
+    .section {{ padding: 14px; }}
     .section h2 {{ margin: 0 0 10px; font-size: 18px; }}
     .kv {{ display: grid; grid-template-columns: 100px 1fr; gap: 8px 12px; }}
     .text-block {{ white-space: pre-wrap; overflow-wrap: anywhere; }}
@@ -382,11 +382,8 @@ def render_index(
         if sites
         else '<section class="empty">没有匹配的记录</section>'
     )
-    selected_input = (
-        f'<input type="hidden" name="status" value="{escape(selected_status)}">'
-        if selected_status
-        else ""
-    )
+    selected_input_value = selected_status or "all"
+    selected_input = f'<input type="hidden" name="status" value="{escape(selected_input_value)}">'
     return f"""
     <div class="topbar">
       <div>
@@ -545,6 +542,8 @@ def tab_link(label: str, value: str | None, selected: str | None, query: str) ->
     params: dict[str, str] = {}
     if value:
         params["status"] = value
+    else:
+        params["status"] = "all"
     if query:
         params["q"] = query
     href = "/"
@@ -585,6 +584,14 @@ def site_link(site: SiteRecord) -> str:
 
 def fmt_dt(value: datetime) -> str:
     return value.strftime("%Y-%m-%d %H:%M")
+
+
+def selected_status_from_query(value: str | None) -> str | None:
+    if value is None or not value.strip():
+        return SiteStatus.TODO.value
+    if value.strip().lower() in {"all", "全部"}:
+        return None
+    return normalize_status(value)
 
 
 def current_path(request: Request) -> str:

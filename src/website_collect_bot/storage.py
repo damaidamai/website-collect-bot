@@ -318,7 +318,7 @@ class Storage:
             params.extend([like, like, like, like, like])
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY updated_at DESC LIMIT ?"
+        sql += " ORDER BY updated_at ASC LIMIT ?"
         params.append(limit)
 
         async with aiosqlite.connect(self.database_path) as db:

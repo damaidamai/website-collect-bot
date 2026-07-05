@@ -25,6 +25,49 @@ async def test_dashboard_lists_sites(tmp_path: Path) -> None:
         summary="登录页",
         notes="需要测试",
     )
+    await storage.upsert_site(
+        domain="finished.test",
+        canonical_url="https://finished.test",
+        title="Done",
+        summary="已完成站点",
+        notes="",
+        status=SiteStatus.DONE.value,
+    )
+
+    app = create_app(make_settings(database_path))
+
+    with TestClient(app) as client:
+        default_response = client.get("/")
+        all_response = client.get("/?status=all")
+
+    assert default_response.status_code == 200
+    assert "网站记录面板" in default_response.text
+    assert "example.com" in default_response.text
+    assert "finished.test" not in default_response.text
+    assert "待处理" in default_response.text
+    assert all_response.status_code == 200
+    assert "finished.test" in all_response.text
+
+
+@pytest.mark.asyncio
+async def test_dashboard_lists_sites_by_oldest_update_first(tmp_path: Path) -> None:
+    database_path = tmp_path / "sites.sqlite3"
+    storage = Storage(database_path)
+    await storage.init()
+    await storage.upsert_site(
+        domain="older.test",
+        canonical_url="https://older.test",
+        title="Older",
+        summary="较早记录",
+        notes="",
+    )
+    await storage.upsert_site(
+        domain="newer.test",
+        canonical_url="https://newer.test",
+        title="Newer",
+        summary="较新记录",
+        notes="",
+    )
 
     app = create_app(make_settings(database_path))
 
@@ -32,9 +75,7 @@ async def test_dashboard_lists_sites(tmp_path: Path) -> None:
         response = client.get("/")
 
     assert response.status_code == 200
-    assert "网站记录面板" in response.text
-    assert "example.com" in response.text
-    assert "待处理" in response.text
+    assert response.text.index("older.test") < response.text.index("newer.test")
 
 
 @pytest.mark.asyncio
