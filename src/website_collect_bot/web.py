@@ -6,7 +6,7 @@ from html import escape
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from website_collect_bot.config import Settings, get_settings
 from website_collect_bot.models import SiteRecord, SiteStatus, normalize_status
@@ -106,7 +106,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.post("/sites/{site_id}/status")
-    async def update_status(site_id: int, request: Request) -> RedirectResponse:
+    async def update_status(site_id: int, request: Request) -> Response:
         form = await request.form()
         status = normalize_status(str(form.get("status", "")))
         if status is None:
@@ -119,6 +119,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         if site is None:
             raise HTTPException(status_code=404, detail="site not found")
+        if is_fetch_request(request):
+            counts = await storage.status_counts()
+            return JSONResponse(
+                {
+                    "site_id": site.id,
+                    "status": site.status,
+                    "counts": counts_with_total(counts),
+                }
+            )
         return RedirectResponse(safe_return_to(form.get("return_to"), f"/sites/{site_id}"), status_code=303)
 
     @app.post("/sites/{site_id}/content")
@@ -338,6 +347,7 @@ def page(title: str, content: str) -> str:
   <main class="shell">
     {content}
   </main>
+  {client_script()}
 </body>
 </html>"""
 
@@ -515,7 +525,7 @@ def render_detail(
 
 def render_site_row(site: SiteRecord, return_to: str) -> str:
     return f"""
-    <tr>
+    <tr data-site-row="{site.id}">
       <td>
         <a class="domain" href="/sites/{site.id}">{escape(site.domain)}</a>
         <div class="muted">{site_link(site)}</div>
@@ -535,7 +545,10 @@ def render_site_row(site: SiteRecord, return_to: str) -> str:
 
 
 def stat_card(label: str, value: int) -> str:
-    return f'<div class="stat"><span class="muted">{escape(label)}</span><strong>{value}</strong></div>'
+    return (
+        f'<div class="stat" data-stat="{escape(label)}">'
+        f'<span class="muted">{escape(label)}</span><strong>{value}</strong></div>'
+    )
 
 
 def tab_link(label: str, value: str | None, selected: str | None, query: str) -> str:
@@ -553,6 +566,93 @@ def tab_link(label: str, value: str | None, selected: str | None, query: str) ->
     if value is None and selected is None:
         active = " active"
     return f'<a class="tab{active}" href="{href}">{escape(label)}</a>'
+
+
+def client_script() -> str:
+    return """
+  <script>
+    (() => {
+      const statusClasses = {
+        "待处理": "todo",
+        "处理中": "doing",
+        "已处理": "done",
+        "搁置": "paused",
+        "无需处理": "none",
+      };
+
+      function currentListStatus() {
+        const params = new URLSearchParams(window.location.search);
+        const status = params.get("status");
+        if (!status) return "待处理";
+        if (status === "all" || status === "全部") return "all";
+        return status;
+      }
+
+      function setBusy(row, busy) {
+        row.querySelectorAll(".quick-actions button").forEach((button) => {
+          button.disabled = busy;
+          button.style.opacity = busy ? "0.55" : "";
+        });
+      }
+
+      function updateCounts(counts) {
+        if (!counts) return;
+        document.querySelectorAll("[data-stat]").forEach((card) => {
+          const label = card.getAttribute("data-stat");
+          const value = counts[label];
+          if (value !== undefined) {
+            const target = card.querySelector("strong");
+            if (target) target.textContent = value;
+          }
+        });
+      }
+
+      function updateRow(row, status) {
+        const current = currentListStatus();
+        if (current !== "all" && current !== status) {
+          row.remove();
+          return;
+        }
+        const badge = row.querySelector("[data-status-badge]");
+        if (!badge) return;
+        badge.textContent = status;
+        badge.className = `status ${statusClasses[status] || ""}`;
+      }
+
+      document.addEventListener("submit", async (event) => {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement) || !form.closest(".quick-actions")) return;
+        event.preventDefault();
+
+        const row = form.closest("[data-site-row]");
+        if (!row) {
+          form.submit();
+          return;
+        }
+
+        setBusy(row, true);
+        try {
+          const response = await fetch(form.action, {
+            method: "POST",
+            body: new FormData(form),
+            headers: {
+              "Accept": "application/json",
+              "X-Requested-With": "fetch",
+            },
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          updateCounts(data.counts);
+          updateRow(row, data.status);
+        } catch (error) {
+          form.submit();
+        } finally {
+          if (row.isConnected) setBusy(row, false);
+        }
+      });
+    })();
+  </script>
+    """
 
 
 def status_form(site_id: int, status: str, label: str, return_to: str, button_class: str) -> str:
@@ -573,7 +673,7 @@ def status_badge(status: str) -> str:
         SiteStatus.PAUSED.value: "paused",
         SiteStatus.NO_ACTION.value: "none",
     }.get(status, "")
-    return f'<span class="status {class_name}">{escape(status)}</span>'
+    return f'<span class="status {class_name}" data-status-badge>{escape(status)}</span>'
 
 
 def site_link(site: SiteRecord) -> str:
@@ -592,6 +692,14 @@ def selected_status_from_query(value: str | None) -> str | None:
     if value.strip().lower() in {"all", "全部"}:
         return None
     return normalize_status(value)
+
+
+def counts_with_total(counts: dict[str, int]) -> dict[str, int]:
+    return {"全部": sum(counts.values()), **counts}
+
+
+def is_fetch_request(request: Request) -> bool:
+    return request.headers.get("x-requested-with", "").lower() == "fetch"
 
 
 def current_path(request: Request) -> str:

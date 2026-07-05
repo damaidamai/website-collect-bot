@@ -18,6 +18,8 @@ def main() -> None:
         factory=True,
         host=settings.web_host,
         port=settings.web_port,
+        workers=settings.web_workers,
+        access_log=False,
         log_level="info",
     )
 

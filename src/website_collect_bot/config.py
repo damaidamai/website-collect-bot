@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     bot_reply_mode: str = Field(default="brief", alias="BOT_REPLY_MODE")
     web_host: str = Field(default="0.0.0.0", alias="WEB_HOST")
     web_port: int = Field(default=8080, alias="WEB_PORT")
+    web_workers: int = Field(default=2, alias="WEB_WORKERS")
     web_dashboard_token: str = Field(default="", alias="WEB_DASHBOARD_TOKEN")
 
     model_config = SettingsConfigDict(

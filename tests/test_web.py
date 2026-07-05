@@ -150,6 +150,40 @@ async def test_dashboard_updates_status(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_dashboard_updates_status_with_fetch_response(tmp_path: Path) -> None:
+    database_path = tmp_path / "sites.sqlite3"
+    storage = Storage(database_path)
+    await storage.init()
+    site = await storage.upsert_site(
+        domain="example.com",
+        canonical_url="https://example.com/login",
+        title="Example",
+        summary="登录页",
+        notes="",
+    )
+
+    app = create_app(make_settings(database_path))
+
+    with TestClient(app) as client:
+        response = client.post(
+            f"/sites/{site.id}/status",
+            data={"status": SiteStatus.NO_ACTION.value, "return_to": "/"},
+            headers={"X-Requested-With": "fetch", "Accept": "application/json"},
+        )
+
+    payload = response.json()
+    updated = await storage.get_site_by_id(site.id)
+
+    assert response.status_code == 200
+    assert payload["site_id"] == site.id
+    assert payload["status"] == SiteStatus.NO_ACTION.value
+    assert payload["counts"]["全部"] == 1
+    assert payload["counts"][SiteStatus.NO_ACTION.value] == 1
+    assert updated is not None
+    assert updated.status == SiteStatus.NO_ACTION.value
+
+
+@pytest.mark.asyncio
 async def test_dashboard_updates_summary_and_notes(tmp_path: Path) -> None:
     database_path = tmp_path / "sites.sqlite3"
     storage = Storage(database_path)
