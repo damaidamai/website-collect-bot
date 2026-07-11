@@ -50,6 +50,33 @@ async def test_dashboard_lists_sites(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_dashboard_renders_operational_ui_affordances(tmp_path: Path) -> None:
+    database_path = tmp_path / "sites.sqlite3"
+    storage = Storage(database_path)
+    await storage.init()
+    await storage.upsert_site(
+        domain="example.com",
+        canonical_url="https://example.com/login",
+        title="Example",
+        summary="登录页",
+        notes="需要测试",
+    )
+
+    app = create_app(make_settings(database_path))
+
+    with TestClient(app) as client:
+        response = client.get("/?q=example")
+
+    assert response.status_code == 200
+    assert 'class="stat' in response.text
+    assert 'href="/?status=all&amp;q=example"' in response.text
+    assert 'data-live-notice role="status" aria-live="polite"' in response.text
+    assert 'data-label="网站"' in response.text
+    assert 'rel="noopener noreferrer"' in response.text
+    assert 'data-target-status="已处理"' in response.text
+
+
+@pytest.mark.asyncio
 async def test_dashboard_lists_sites_by_oldest_update_first(tmp_path: Path) -> None:
     database_path = tmp_path / "sites.sqlite3"
     storage = Storage(database_path)

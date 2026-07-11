@@ -158,18 +158,19 @@ def page(title: str, content: str) -> str:
   <style>
     :root {{
       color-scheme: light;
-      --bg: #f6f7f9;
+      --bg: #f4f6f8;
       --panel: #ffffff;
       --text: #17202a;
       --muted: #667085;
       --line: #d9dee7;
       --accent: #0f766e;
       --accent-soft: #dff3ef;
+      --accent-line: #8bd5c8;
       --danger: #b42318;
       --warn: #b54708;
       --ok: #067647;
       --info: #175cd3;
-      --shadow: 0 1px 2px rgba(16, 24, 40, .08);
+      --shadow: 0 1px 2px rgba(16, 24, 40, .08), 0 8px 20px rgba(16, 24, 40, .04);
     }}
     * {{ box-sizing: border-box; }}
     body {{
@@ -181,41 +182,55 @@ def page(title: str, content: str) -> str:
     }}
     a {{ color: var(--accent); text-decoration: none; }}
     a:hover {{ text-decoration: underline; }}
-    .shell {{ max-width: 1220px; margin: 0 auto; padding: 18px 20px; }}
+    a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible {{
+      outline: 3px solid rgba(15, 118, 110, .22);
+      outline-offset: 2px;
+    }}
+    .shell {{ max-width: 1240px; margin: 0 auto; padding: 20px; }}
     .topbar {{
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
     }}
-    .brand {{ font-size: 21px; font-weight: 700; letter-spacing: 0; }}
+    .brand {{ font-size: 24px; font-weight: 750; letter-spacing: 0; }}
     .muted {{ color: var(--muted); }}
+    .toolbar {{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }}
     .stats {{
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
       gap: 8px;
-      margin: 10px 0 12px;
+      margin: 10px 0 14px;
     }}
-    .stat, .panel, .empty {{
+    .stat, .panel, .empty, .notice {{
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
       box-shadow: var(--shadow);
     }}
-    .stat {{ padding: 8px 12px; }}
+    .stat {{
+      display: block;
+      padding: 10px 12px;
+      color: var(--text);
+      transition: border-color .15s ease, transform .15s ease, background .15s ease;
+    }}
+    .stat:hover {{ text-decoration: none; border-color: var(--accent-line); transform: translateY(-1px); }}
+    .stat.active {{ border-color: var(--accent); background: var(--accent-soft); }}
     .stat strong {{ display: block; font-size: 22px; line-height: 1.15; }}
+    .stat span {{ display: flex; align-items: center; justify-content: space-between; gap: 8px; }}
     .filters {{
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
       align-items: center;
-      margin: 10px 0 12px;
+      margin: 10px 0 14px;
     }}
     .tabs {{ display: flex; flex-wrap: wrap; gap: 7px; }}
     .tab {{
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       min-height: 31px;
       padding: 5px 9px;
       border: 1px solid var(--line);
@@ -225,9 +240,9 @@ def page(title: str, content: str) -> str:
       font-size: 14px;
     }}
     .tab.active {{ border-color: var(--accent); background: var(--accent-soft); color: #0b5b54; }}
-    form.search {{ display: flex; gap: 7px; margin-left: auto; }}
+    form.search {{ display: flex; gap: 7px; margin-left: auto; align-items: center; }}
     input[type="search"] {{
-      width: min(320px, 60vw);
+      width: min(360px, 60vw);
       min-height: 34px;
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -255,6 +270,7 @@ def page(title: str, content: str) -> str:
       font: inherit;
       cursor: pointer;
     }}
+    button:disabled {{ cursor: progress; }}
     button.secondary {{ border-color: var(--line); background: var(--panel); color: var(--text); }}
     button.danger {{ border-color: var(--danger); background: var(--danger); }}
     button.warn {{ border-color: var(--warn); background: var(--warn); }}
@@ -278,6 +294,11 @@ def page(title: str, content: str) -> str:
       line-height: 1.2;
       white-space: nowrap;
     }}
+    .quick-actions button.is-current {{
+      border-color: var(--line);
+      background: #f8fafc;
+      color: var(--muted);
+    }}
     .edit-form {{ display: grid; gap: 10px; }}
     .edit-form label {{ display: grid; gap: 5px; color: var(--muted); font-size: 14px; }}
     .panel {{ overflow: hidden; }}
@@ -288,10 +309,10 @@ def page(title: str, content: str) -> str:
       table-layout: fixed;
     }}
     .sites-table col:nth-child(1) {{ width: 30%; }}
-    .sites-table col:nth-child(2) {{ width: 8%; }}
-    .sites-table col:nth-child(3) {{ width: 28%; }}
-    .sites-table col:nth-child(4) {{ width: 8%; }}
-    .sites-table col:nth-child(5) {{ width: 26%; }}
+    .sites-table col:nth-child(2) {{ width: 9%; }}
+    .sites-table col:nth-child(3) {{ width: 30%; }}
+    .sites-table col:nth-child(4) {{ width: 10%; }}
+    .sites-table col:nth-child(5) {{ width: 21%; }}
     th, td {{
       padding: 9px 12px;
       border-bottom: 1px solid var(--line);
@@ -303,6 +324,22 @@ def page(title: str, content: str) -> str:
     tr:last-child td {{ border-bottom: 0; }}
     .domain {{ font-weight: 700; }}
     .summary {{ color: #344054; }}
+    .summary-note {{
+      margin-top: 4px;
+      color: var(--muted);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }}
+    .url-line {{
+      margin-top: 2px;
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }}
     .cell-action {{ padding-right: 10px; }}
     .status {{
       display: inline-flex;
@@ -329,16 +366,44 @@ def page(title: str, content: str) -> str:
     .message, .event {{ border-top: 1px solid var(--line); padding: 12px 0; }}
     .message:first-child, .event:first-child {{ border-top: 0; padding-top: 0; }}
     .empty {{ padding: 28px; text-align: center; color: var(--muted); }}
+    .notice {{
+      display: none;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      border-color: var(--accent-line);
+      color: #0b5b54;
+      background: #f0faf8;
+    }}
+    .notice.is-visible {{ display: block; }}
+    .row-flash {{ animation: rowFlash 1.4s ease; }}
+    @keyframes rowFlash {{
+      0% {{ background: #f0faf8; }}
+      100% {{ background: transparent; }}
+    }}
     @media (max-width: 820px) {{
       .shell {{ padding: 16px; }}
-      .topbar, form.search {{ align-items: stretch; flex-direction: column; }}
+      .topbar, .toolbar, form.search {{ align-items: stretch; flex-direction: column; }}
       form.search {{ width: 100%; margin-left: 0; }}
       input[type="search"] {{ width: 100%; }}
       .grid {{ grid-template-columns: 1fr; }}
       table, thead, tbody, th, td, tr {{ display: block; }}
       thead {{ display: none; }}
       tr {{ border-bottom: 1px solid var(--line); padding: 10px 0; }}
-      td {{ border-bottom: 0; padding: 5px 14px; }}
+      td {{
+        border-bottom: 0;
+        padding: 6px 14px;
+        display: grid;
+        grid-template-columns: 82px 1fr;
+        gap: 10px;
+      }}
+      td::before {{
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+      }}
+      td[data-label="网站"] {{ display: block; }}
+      td[data-label="网站"]::before {{ display: block; margin-bottom: 3px; }}
       .quick-actions {{ grid-template-columns: repeat(3, minmax(82px, 1fr)); min-width: 0; }}
     }}
   </style>
@@ -360,8 +425,11 @@ def render_index(
     query: str,
     return_to: str,
 ) -> str:
-    stats = [stat_card("全部", total)]
-    stats.extend(stat_card(status, counts.get(status, 0)) for status in STATUS_ORDER)
+    stats = [stat_card("全部", total, selected_status is None, None, query)]
+    stats.extend(
+        stat_card(status, counts.get(status, 0), selected_status == status, status, query)
+        for status in STATUS_ORDER
+    )
     tabs = [tab_link("全部", None, selected_status, query)]
     tabs.extend(tab_link(status, status, selected_status, query) for status in STATUS_ORDER)
     rows = "\n".join(render_site_row(site, return_to) for site in sites)
@@ -394,14 +462,24 @@ def render_index(
     )
     selected_input_value = selected_status or "all"
     selected_input = f'<input type="hidden" name="status" value="{escape(selected_input_value)}">'
+    clear_link = (
+        '<a class="tab" href="/">清空</a>'
+        if query or selected_status is None
+        else ""
+    )
+    active_label = selected_status or "全部"
     return f"""
     <div class="topbar">
       <div>
         <div class="brand">网站记录面板</div>
-        <div class="muted">当前共 {total} 条记录，列表最多显示 200 条</div>
+        <div class="muted">当前查看：{escape(active_label)} · 共 {total} 条记录 · 最多显示 200 条</div>
       </div>
-      <a class="tab" href="/">刷新</a>
+      <div class="toolbar">
+        <a class="tab" href="{escape(return_to)}">刷新</a>
+        <a class="tab" href="/?status=all">全部记录</a>
+      </div>
     </div>
+    <div class="notice" data-live-notice role="status" aria-live="polite"></div>
     <section class="stats">{''.join(stats)}</section>
     <section class="filters">
       <nav class="tabs">{''.join(tabs)}</nav>
@@ -409,6 +487,7 @@ def render_index(
         {selected_input}
         <input type="search" name="q" value="{escape(query)}" placeholder="搜索域名、URL、摘要或备注">
         <button type="submit">搜索</button>
+        {clear_link}
       </form>
     </section>
     {table}
@@ -462,11 +541,11 @@ def render_detail(
     <section class="panel section">
       <h2>操作</h2>
       <div class="actions">
-        {status_form(site.id, SiteStatus.IN_PROGRESS.value, "标记处理中", return_to, "warn")}
-        {status_form(site.id, SiteStatus.DONE.value, "标记已处理", return_to, "ok")}
-        {status_form(site.id, SiteStatus.NO_ACTION.value, "标记无需处理", return_to, "secondary")}
-        {status_form(site.id, SiteStatus.PAUSED.value, "搁置", return_to, "secondary")}
-        {status_form(site.id, SiteStatus.TODO.value, "退回待处理", return_to, "danger")}
+        {status_form(site.id, SiteStatus.IN_PROGRESS.value, "标记处理中", return_to, "warn", site.status)}
+        {status_form(site.id, SiteStatus.DONE.value, "标记已处理", return_to, "ok", site.status)}
+        {status_form(site.id, SiteStatus.NO_ACTION.value, "标记无需处理", return_to, "secondary", site.status)}
+        {status_form(site.id, SiteStatus.PAUSED.value, "搁置", return_to, "secondary", site.status)}
+        {status_form(site.id, SiteStatus.TODO.value, "退回待处理", return_to, "danger", site.status)}
       </div>
     </section>
     <section class="panel section">
@@ -524,30 +603,40 @@ def render_detail(
 
 
 def render_site_row(site: SiteRecord, return_to: str) -> str:
+    summary = site.summary or "-"
+    note = site.notes if site.notes and site.notes != site.summary else ""
     return f"""
     <tr data-site-row="{site.id}">
-      <td>
+      <td data-label="网站">
         <a class="domain" href="/sites/{site.id}">{escape(site.domain)}</a>
-        <div class="muted">{site_link(site)}</div>
+        <div class="muted url-line">{site_link(site)}</div>
       </td>
-      <td>{status_badge(site.status)}</td>
-      <td class="summary">{escape(site.summary or site.notes or "-")}</td>
-      <td>{fmt_dt(site.updated_at)}</td>
-      <td class="cell-action">
+      <td data-label="状态">{status_badge(site.status)}</td>
+      <td class="summary" data-label="摘要">
+        <div>{escape(summary)}</div>
+        {f'<div class="summary-note">{escape(note)}</div>' if note else ''}
+      </td>
+      <td data-label="更新">{fmt_dt(site.updated_at)}</td>
+      <td class="cell-action" data-label="操作">
         <div class="quick-actions">
-          {status_form(site.id, SiteStatus.DONE.value, "已处理", return_to, "ok")}
-          {status_form(site.id, SiteStatus.NO_ACTION.value, "无需处理", return_to, "secondary")}
-          {status_form(site.id, SiteStatus.IN_PROGRESS.value, "处理中", return_to, "warn")}
+          {status_form(site.id, SiteStatus.DONE.value, "已处理", return_to, "ok", site.status)}
+          {status_form(site.id, SiteStatus.NO_ACTION.value, "无需处理", return_to, "secondary", site.status)}
+          {status_form(site.id, SiteStatus.IN_PROGRESS.value, "处理中", return_to, "warn", site.status)}
         </div>
       </td>
     </tr>
     """
 
 
-def stat_card(label: str, value: int) -> str:
+def stat_card(label: str, value: int, active: bool, status_value: str | None, query: str) -> str:
+    params: dict[str, str] = {"status": status_value or "all"}
+    if query:
+        params["q"] = query
+    href = "/?" + urlencode(params)
+    active_class = " active" if active else ""
     return (
-        f'<div class="stat" data-stat="{escape(label)}">'
-        f'<span class="muted">{escape(label)}</span><strong>{value}</strong></div>'
+        f'<a class="stat{active_class}" href="{escape(href, quote=True)}" data-stat="{escape(label)}">'
+        f'<span class="muted">{escape(label)}<span>查看</span></span><strong>{value}</strong></a>'
     )
 
 
@@ -565,7 +654,7 @@ def tab_link(label: str, value: str | None, selected: str | None, query: str) ->
     active = " active" if value == selected else ""
     if value is None and selected is None:
         active = " active"
-    return f'<a class="tab{active}" href="{href}">{escape(label)}</a>'
+    return f'<a class="tab{active}" href="{escape(href, quote=True)}">{escape(label)}</a>'
 
 
 def client_script() -> str:
@@ -595,6 +684,17 @@ def client_script() -> str:
         });
       }
 
+      function showNotice(message) {
+        const notice = document.querySelector("[data-live-notice]");
+        if (!notice) return;
+        notice.textContent = message;
+        notice.classList.add("is-visible");
+        window.clearTimeout(showNotice.timer);
+        showNotice.timer = window.setTimeout(() => {
+          notice.classList.remove("is-visible");
+        }, 2600);
+      }
+
       function updateCounts(counts) {
         if (!counts) return;
         document.querySelectorAll("[data-stat]").forEach((card) => {
@@ -611,13 +711,32 @@ def client_script() -> str:
         const current = currentListStatus();
         if (current !== "all" && current !== status) {
           row.remove();
+          showNotice(`已标记为${status}，记录已移出当前筛选列表`);
           return;
         }
         const badge = row.querySelector("[data-status-badge]");
         if (!badge) return;
         badge.textContent = status;
         badge.className = `status ${statusClasses[status] || ""}`;
+        row.querySelectorAll("[data-target-status]").forEach((button) => {
+          button.classList.toggle("is-current", button.getAttribute("data-target-status") === status);
+          button.setAttribute(
+            "aria-pressed",
+            button.getAttribute("data-target-status") === status ? "true" : "false"
+          );
+        });
+        row.classList.remove("row-flash");
+        void row.offsetWidth;
+        row.classList.add("row-flash");
+        showNotice(`已更新为${status}`);
       }
+
+      document.addEventListener("search", (event) => {
+        const input = event.target;
+        if (!(input instanceof HTMLInputElement) || input.name !== "q" || input.value) return;
+        const form = input.form;
+        if (form) form.requestSubmit();
+      });
 
       document.addEventListener("submit", async (event) => {
         const form = event.target;
@@ -655,12 +774,22 @@ def client_script() -> str:
     """
 
 
-def status_form(site_id: int, status: str, label: str, return_to: str, button_class: str) -> str:
+def status_form(
+    site_id: int,
+    status: str,
+    label: str,
+    return_to: str,
+    button_class: str,
+    current_status: str | None = None,
+) -> str:
+    is_current = current_status == status
+    classes = f"{button_class}{' is-current' if is_current else ''}"
+    pressed = "true" if is_current else "false"
     return f"""
     <form method="post" action="/sites/{site_id}/status">
       <input type="hidden" name="status" value="{escape(status)}">
       <input type="hidden" name="return_to" value="{escape(return_to)}">
-      <button class="{escape(button_class)}" type="submit">{escape(label)}</button>
+      <button class="{escape(classes)}" type="submit" data-target-status="{escape(status)}" aria-pressed="{pressed}">{escape(label)}</button>
     </form>
     """
 
@@ -679,7 +808,7 @@ def status_badge(status: str) -> str:
 def site_link(site: SiteRecord) -> str:
     url = site.canonical_url or f"https://{site.domain}"
     safe_url = escape(url)
-    return f'<a href="{safe_url}" target="_blank" rel="noreferrer">{safe_url}</a>'
+    return f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">{safe_url}</a>'
 
 
 def fmt_dt(value: datetime) -> str:
