@@ -35,6 +35,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def dashboard_auth(request: Request, call_next):
+        if request.url.path == "/healthz":
+            return await call_next(request)
+
         token = settings.web_dashboard_token.strip()
         if not token:
             return await call_next(request)

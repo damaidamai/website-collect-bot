@@ -144,6 +144,16 @@ def test_dashboard_token_required(tmp_path: Path) -> None:
     assert cookie_allowed.status_code == 200
 
 
+def test_healthz_does_not_require_dashboard_token(tmp_path: Path) -> None:
+    app = create_app(Settings(database_path=tmp_path / "sites.sqlite3", web_dashboard_token="secret"))
+
+    with TestClient(app) as client:
+        response = client.get("/healthz")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 @pytest.mark.asyncio
 async def test_dashboard_updates_status(tmp_path: Path) -> None:
     database_path = tmp_path / "sites.sqlite3"
