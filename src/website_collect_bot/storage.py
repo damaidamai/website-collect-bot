@@ -6,7 +6,7 @@ from pathlib import Path
 import aiosqlite
 
 from website_collect_bot.extract import canonical_site_key
-from website_collect_bot.models import SiteRecord, SiteStatus
+from website_collect_bot.models import ScanRun, ScanStatus, SiteRecord, SiteStatus
 
 
 def utc_now_iso() -> str:
@@ -75,8 +75,22 @@ class Storage:
                     created_at TEXT NOT NULL,
                     FOREIGN KEY (site_id) REFERENCES sites(id)
                 );
+
+                CREATE TABLE IF NOT EXISTS scan_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    site_id INTEGER NOT NULL,
+                    tool TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    result_json TEXT NOT NULL DEFAULT '',
+                    raw_path TEXT,
+                    summary TEXT NOT NULL DEFAULT '',
+                    FOREIGN KEY (site_id) REFERENCES sites(id)
+                );
                 """
             )
+            await self._ensure_scan_columns(db)
             await self._merge_subdomain_sites(db)
             await db.commit()
 
@@ -222,7 +236,7 @@ class Storage:
         async with aiosqlite.connect(self.database_path) as db:
             cursor = await db.execute(
                 """
-                SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at
+                SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at, scan_status, scan_summary, scanned_at
                 FROM sites
                 WHERE id = ?
                 """,
@@ -266,7 +280,7 @@ class Storage:
 
     async def list_sites(self, status: str | None = None, limit: int = 20) -> list[SiteRecord]:
         query = """
-            SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at
+            SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at, scan_status, scan_summary, scanned_at
             FROM sites
         """
         params: tuple[object, ...] = ()
@@ -294,7 +308,7 @@ class Storage:
         limit: int = 100,
     ) -> list[SiteRecord]:
         sql = """
-            SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at
+            SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at, scan_status, scan_summary, scanned_at
             FROM sites
         """
         clauses: list[str] = []
@@ -329,7 +343,7 @@ class Storage:
         async with aiosqlite.connect(self.database_path) as db:
             cursor = await db.execute(
                 """
-                SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at
+                SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at, scan_status, scan_summary, scanned_at
                 FROM sites
                 WHERE id = ?
                 """,
@@ -414,11 +428,154 @@ class Storage:
                 (site_id, limit),
             )
             return [str(row[0]) for row in rows]
+    async def list_sites_for_scan(
+        self,
+        scan_status: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[SiteRecord]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if scan_status:
+            clauses.append("scan_status = ?")
+            params.append(scan_status)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        sql = """
+            SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at, scan_status, scan_summary, scanned_at
+            FROM sites
+        """
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY updated_at ASC LIMIT ?"
+        params.append(limit)
+        async with aiosqlite.connect(self.database_path) as db:
+            rows = await db.execute_fetchall(sql, tuple(params))
+            return [row_to_site(row) for row in rows]
+
+    async def get_scan_runs(self, site_id: int, limit: int = 50) -> list[ScanRun]:
+        async with aiosqlite.connect(self.database_path) as db:
+            rows = await db.execute_fetchall(
+                """
+                SELECT id, site_id, tool, status, started_at, finished_at,
+                       result_json, raw_path, summary
+                FROM scan_runs
+                WHERE site_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (site_id, limit),
+            )
+            return [
+                ScanRun(
+                    id=int(row[0]),
+                    site_id=int(row[1]),
+                    tool=str(row[2]),
+                    status=str(row[3]),
+                    started_at=row[4],
+                    finished_at=row[5],
+                    result_json=str(row[6] or ""),
+                    raw_path=row[7],
+                    summary=str(row[8] or ""),
+                )
+                for row in rows
+            ]
+
+    async def add_scan_run(
+        self,
+        site_id: int,
+        tool: str,
+        status: str = ScanStatus.RUNNING.value,
+        result_json: str = "",
+        raw_path: str | None = None,
+        summary: str = "",
+    ) -> int:
+        now = utc_now_iso()
+        async with aiosqlite.connect(self.database_path) as db:
+            cursor = await db.execute(
+                """
+                INSERT INTO scan_runs
+                    (site_id, tool, status, started_at, finished_at, result_json, raw_path, summary)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (site_id, tool, status, now, now, result_json, raw_path, summary),
+            )
+            await db.commit()
+            return int(cursor.lastrowid)
+
+    async def update_scan_run(
+        self,
+        run_id: int,
+        status: str,
+        result_json: str | None = None,
+        raw_path: str | None = None,
+        summary: str | None = None,
+    ) -> bool:
+        now = utc_now_iso()
+        sets = ["status = ?", "finished_at = ?"]
+        params: list[object] = [status, now]
+        if result_json is not None:
+            sets.append("result_json = ?")
+            params.append(result_json)
+        if raw_path is not None:
+            sets.append("raw_path = ?")
+            params.append(raw_path)
+        if summary is not None:
+            sets.append("summary = ?")
+            params.append(summary)
+        params.append(run_id)
+        async with aiosqlite.connect(self.database_path) as db:
+            await db.execute(
+                f"UPDATE scan_runs SET {', '.join(sets)} WHERE id = ?",
+                tuple(params),
+            )
+            await db.commit()
+            return True
+
+    async def set_scan_result(
+        self,
+        site_id: int,
+        scan_status: str,
+        scan_summary: str | None = None,
+    ) -> SiteRecord | None:
+        now = utc_now_iso()
+        async with aiosqlite.connect(self.database_path) as db:
+            await db.execute(
+                """
+                UPDATE sites
+                SET scan_status = ?,
+                    scan_summary = CASE WHEN ? IS NOT NULL THEN ? ELSE scan_summary END,
+                    scanned_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (scan_status, scan_summary, scan_summary, now, now, site_id),
+            )
+            await db.execute(
+                """
+                INSERT INTO site_events (site_id, event_type, content, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (site_id, "scan_update", f"安全检测：{scan_status}", now),
+            )
+            await db.commit()
+        return await self.get_site_by_id(site_id)
+
+    async def _ensure_scan_columns(self, db: aiosqlite.Connection) -> None:
+        cols = {row[1] for row in await db.execute_fetchall("PRAGMA table_info(sites)")}
+        for col, decl in [
+            ("scan_status", "TEXT NOT NULL DEFAULT 'none'"),
+            ("scan_summary", "TEXT NOT NULL DEFAULT ''"),
+            ("scanned_at", "TEXT"),
+        ]:
+            if col not in cols:
+                await db.execute(f"ALTER TABLE sites ADD COLUMN {col} {decl}")
 
     async def _get_site_row(self, db: aiosqlite.Connection, domain: str) -> aiosqlite.Row | None:
         cursor = await db.execute(
             """
-            SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at
+            SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at, scan_status, scan_summary, scanned_at
             FROM sites
             WHERE domain = ?
             """,
@@ -445,7 +602,7 @@ class Storage:
     async def _merge_subdomain_sites(self, db: aiosqlite.Connection) -> None:
         rows = await db.execute_fetchall(
             """
-            SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at
+            SELECT id, domain, canonical_url, title, status, summary, notes, first_seen_at, updated_at, scan_status, scan_summary, scanned_at
             FROM sites
             ORDER BY first_seen_at ASC
             """
@@ -522,6 +679,7 @@ def merge_text(left: str, right: str) -> str:
 
 
 def row_to_site(row: aiosqlite.Row) -> SiteRecord:
+    scanned_raw = row[11] if len(row) > 11 else None
     return SiteRecord(
         id=int(row[0]),
         domain=str(row[1]),
@@ -532,4 +690,7 @@ def row_to_site(row: aiosqlite.Row) -> SiteRecord:
         notes=str(row[6] or ""),
         first_seen_at=parse_dt(str(row[7])),
         updated_at=parse_dt(str(row[8])),
+        scan_status=str(row[9] or ScanStatus.NONE.value),
+        scan_summary=str(row[10] or ""),
+        scanned_at=parse_dt(scanned_raw) if scanned_raw else None,
     )

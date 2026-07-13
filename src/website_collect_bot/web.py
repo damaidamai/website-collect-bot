@@ -9,7 +9,14 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from website_collect_bot.config import Settings, get_settings
-from website_collect_bot.models import SiteRecord, SiteStatus, normalize_status
+from website_collect_bot.models import (
+    ScanRun,
+    ScanStatus,
+    SiteRecord,
+    SiteStatus,
+    normalize_scan_status,
+    normalize_status,
+)
 from website_collect_bot.storage import Storage
 
 
@@ -36,6 +43,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.middleware("http")
     async def dashboard_auth(request: Request, call_next):
         if request.url.path == "/healthz":
+            return await call_next(request)
+
+        if request.url.path.startswith("/api/"):
+            api_token = settings.api_token.strip()
+            if api_token and request.headers.get("x-api-token", "").strip() != api_token:
+                return JSONResponse({"detail": "invalid api token"}, status_code=401)
             return await call_next(request)
 
         token = settings.web_dashboard_token.strip()
@@ -104,8 +117,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         messages = await storage.site_messages(site_id)
         events = await storage.site_events(site_id)
         history = await storage.status_history(site_id)
+        scan_runs = await storage.get_scan_runs(site_id)
         return HTMLResponse(
-            page(site.domain, render_detail(site, messages, events, history, current_path(request)))
+            page(site.domain, render_detail(site, messages, events, history, scan_runs, current_path(request)))
         )
 
     @app.post("/sites/{site_id}/status")
@@ -147,6 +161,61 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if site is None:
             raise HTTPException(status_code=404, detail="site not found")
         return RedirectResponse(safe_return_to(form.get("return_to"), f"/sites/{site_id}"), status_code=303)
+
+    @app.get("/api/sites")
+    async def api_list_sites(
+        status: str | None = None,
+        scan_status: str | None = None,
+        limit: int = 100,
+    ) -> JSONResponse:
+        norm_status = normalize_status(status) if status else None
+        norm_scan = normalize_scan_status(scan_status) if scan_status else None
+        sites = await storage.list_sites_for_scan(
+            scan_status=norm_scan, status=norm_status, limit=limit
+        )
+        return JSONResponse({"sites": [site_to_dict(s) for s in sites]})
+
+    @app.get("/api/sites/{site_id}")
+    async def api_get_site(site_id: int) -> JSONResponse:
+        site = await storage.get_site_by_id(site_id)
+        if site is None:
+            raise HTTPException(status_code=404, detail="site not found")
+        runs = await storage.get_scan_runs(site_id)
+        return JSONResponse(
+            {"site": site_to_dict(site), "scan_runs": [scan_run_to_dict(r) for r in runs]}
+        )
+
+    @app.post("/api/sites/{site_id}/scan")
+    async def api_update_scan(site_id: int, request: Request) -> JSONResponse:
+        body = await request.json()
+        scan_status = normalize_scan_status(str(body.get("scan_status", "")))
+        if scan_status is None:
+            raise HTTPException(status_code=400, detail="unknown scan_status")
+        scan_summary = body.get("scan_summary")
+        for run in body.get("runs") or []:
+            await storage.add_scan_run(
+                site_id=site_id,
+                tool=str(run.get("tool", "")),
+                status=str(run.get("status", "done")),
+                result_json=str(run.get("result_json", "")),
+                raw_path=run.get("raw_path"),
+                summary=str(run.get("summary", "")),
+            )
+        site = await storage.set_scan_result(site_id, scan_status, scan_summary)
+        if site is None:
+            raise HTTPException(status_code=404, detail="site not found")
+        return JSONResponse({"site_id": site.id, "scan_status": site.scan_status})
+
+    @app.post("/api/sites/{site_id}/status")
+    async def api_update_status(site_id: int, request: Request) -> JSONResponse:
+        body = await request.json()
+        status = normalize_status(str(body.get("status", "")))
+        if status is None:
+            raise HTTPException(status_code=400, detail="unknown status")
+        site = await storage.update_site_by_id(site_id, status=status, reason="API 更新状态")
+        if site is None:
+            raise HTTPException(status_code=404, detail="site not found")
+        return JSONResponse({"site_id": site.id, "status": site.status})
 
     return app
 
@@ -502,6 +571,7 @@ def render_detail(
     messages: list[dict[str, object]],
     events: list[dict[str, str]],
     history: list[dict[str, str]],
+    scan_runs: list[ScanRun],
     return_to: str,
 ) -> str:
     message_items = "".join(
@@ -583,6 +653,18 @@ def render_detail(
         <div><button type="submit">保存摘要和备注</button></div>
       </form>
     </section>
+    <section class="panel section" style="margin-top: 16px;">
+      <h2>安全检测 {scan_badge(site.scan_status)}</h2>
+      <div class="kv">
+        <div class="muted">检测状态</div>
+        <div>{scan_badge(site.scan_status)}</div>
+        <div class="muted">检测时间</div>
+        <div>{fmt_dt(site.scanned_at) if site.scanned_at else "-"}</div>
+        <div class="muted">检测结论</div>
+        <div class="text-block">{escape(site.scan_summary or "暂无")}</div>
+      </div>
+      {scan_run_rows(scan_runs)}
+    </section>
     <section class="grid" style="margin-top: 16px;">
       <div class="panel section">
         <h2>关联消息</h2>
@@ -618,6 +700,7 @@ def render_site_row(site: SiteRecord, return_to: str) -> str:
       <td class="summary" data-label="摘要">
         <div>{escape(summary)}</div>
         {f'<div class="summary-note">{escape(note)}</div>' if note else ''}
+        {scan_badge(site.scan_status) if site.scan_status != ScanStatus.NONE.value else ''}
       </td>
       <td data-label="更新">{fmt_dt(site.updated_at)}</td>
       <td class="cell-action" data-label="操作">
@@ -847,3 +930,75 @@ def safe_return_to(value: object, fallback: str) -> str:
     if not value.startswith("/") or value.startswith("//"):
         return fallback
     return value
+
+
+def site_to_dict(site: SiteRecord) -> dict[str, object]:
+    return {
+        "id": site.id,
+        "domain": site.domain,
+        "canonical_url": site.canonical_url,
+        "title": site.title,
+        "status": site.status,
+        "summary": site.summary,
+        "notes": site.notes,
+        "scan_status": site.scan_status,
+        "scan_summary": site.scan_summary,
+        "scanned_at": site.scanned_at.isoformat() if site.scanned_at else None,
+        "updated_at": site.updated_at.isoformat(),
+    }
+
+
+def scan_run_to_dict(run: ScanRun) -> dict[str, object]:
+    return {
+        "id": run.id,
+        "site_id": run.site_id,
+        "tool": run.tool,
+        "status": run.status,
+        "started_at": run.started_at,
+        "finished_at": run.finished_at,
+        "result_json": run.result_json,
+        "raw_path": run.raw_path,
+        "summary": run.summary,
+    }
+
+
+SCAN_STATUS_LABELS = {
+    ScanStatus.NONE.value: "未检测",
+    ScanStatus.RUNNING.value: "检测中",
+    ScanStatus.DONE.value: "已检测",
+    ScanStatus.ERROR.value: "检测失败",
+}
+
+
+def scan_badge(scan_status: str) -> str:
+    class_name = {
+        ScanStatus.NONE.value: "none",
+        ScanStatus.RUNNING.value: "doing",
+        ScanStatus.DONE.value: "done",
+        ScanStatus.ERROR.value: "todo",
+    }.get(scan_status, "")
+    label = SCAN_STATUS_LABELS.get(scan_status, scan_status)
+    return f'<span class="status {class_name}">{escape(label)}</span>'
+
+
+def scan_run_rows(runs: list[ScanRun]) -> str:
+    if not runs:
+        return ""
+    rows = "".join(
+        f"""
+        <tr>
+          <td>{escape(run.tool)}</td>
+          <td>{scan_badge(run.status)}</td>
+          <td>{escape(run.finished_at or run.started_at or "-")}</td>
+          <td class="text-block">{escape(run.summary or "-")}</td>
+        </tr>
+        """
+        for run in runs
+    )
+    return f"""
+    <h3 style="margin-top:14px;font-size:15px;">检测明细</h3>
+    <table>
+      <thead><tr><th>工具</th><th>状态</th><th>时间</th><th>结果摘要</th></tr></thead>
+      <tbody>{rows}</tbody>
+    </table>
+    """

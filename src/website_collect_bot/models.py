@@ -15,6 +15,34 @@ class SiteStatus(StrEnum):
         return {item.value for item in cls}
 
 
+class ScanStatus(StrEnum):
+    NONE = "none"
+    RUNNING = "running"
+    DONE = "done"
+    ERROR = "error"
+
+    @classmethod
+    def values(cls) -> set[str]:
+        return {item.value for item in cls}
+
+
+SCAN_STATUS_ALIASES = {
+    "pending": ScanStatus.NONE.value,
+    "未扫描": ScanStatus.NONE.value,
+    "扫描中": ScanStatus.RUNNING.value,
+    "failed": ScanStatus.ERROR.value,
+    "err": ScanStatus.ERROR.value,
+    "失败": ScanStatus.ERROR.value,
+}
+
+
+def normalize_scan_status(value: str) -> str | None:
+    cleaned = value.strip()
+    if cleaned in ScanStatus.values():
+        return cleaned
+    return SCAN_STATUS_ALIASES.get(cleaned.lower())
+
+
 STATUS_ALIASES = {
     "todo": SiteStatus.TODO.value,
     "待办": SiteStatus.TODO.value,
@@ -53,6 +81,9 @@ class SiteRecord:
     notes: str
     first_seen_at: datetime
     updated_at: datetime
+    scan_status: str = ScanStatus.NONE.value
+    scan_summary: str = ""
+    scanned_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -65,3 +96,16 @@ class AnalysisResult:
     notes: str | None
     confidence: float
     reply: str | None = None
+
+
+@dataclass(frozen=True)
+class ScanRun:
+    id: int
+    site_id: int
+    tool: str
+    status: str
+    started_at: str | None
+    finished_at: str | None
+    result_json: str
+    raw_path: str | None
+    summary: str

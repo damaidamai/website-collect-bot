@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     web_port: int = Field(default=8080, alias="WEB_PORT")
     web_workers: int = Field(default=2, alias="WEB_WORKERS")
     web_dashboard_token: str = Field(default="", alias="WEB_DASHBOARD_TOKEN")
+    api_token: str = Field(default="", alias="API_TOKEN")
 
     model_config = SettingsConfigDict(
         env_file=".env",

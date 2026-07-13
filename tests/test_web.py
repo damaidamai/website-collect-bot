@@ -254,3 +254,94 @@ async def test_dashboard_updates_summary_and_notes(tmp_path: Path) -> None:
     assert updated.summary == "新的摘要"
     assert updated.notes == "新的备注"
     assert events[0]["event_type"] == "web_update"
+
+
+async def _seed_site_for_scan(tmp_path: Path) -> tuple[Path, int]:
+    database_path = tmp_path / "sites.sqlite3"
+    storage = Storage(database_path)
+    await storage.init()
+    site = await storage.upsert_site(
+        domain="scan.test",
+        canonical_url="https://scan.test",
+        title="ScanTarget",
+        summary="待检测",
+        notes="",
+    )
+    return database_path, site.id
+
+
+@pytest.mark.asyncio
+async def test_api_requires_token(tmp_path: Path) -> None:
+    db, _ = await _seed_site_for_scan(tmp_path)
+    app = create_app(Settings(database_path=db, web_dashboard_token="", api_token="secret"))
+    with TestClient(app) as client:
+        no_token = client.get("/api/sites")
+        wrong_token = client.get("/api/sites", headers={"X-API-Token": "wrong"})
+        ok = client.get("/api/sites", headers={"X-API-Token": "secret"})
+    assert no_token.status_code == 401
+    assert wrong_token.status_code == 401
+    assert ok.status_code == 200
+    assert ok.json()["sites"][0]["domain"] == "scan.test"
+
+
+@pytest.mark.asyncio
+async def test_api_token_not_required_when_unset(tmp_path: Path) -> None:
+    db, _ = await _seed_site_for_scan(tmp_path)
+    app = create_app(Settings(database_path=db, web_dashboard_token="", api_token=""))
+    with TestClient(app) as client:
+        resp = client.get("/api/sites")
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_api_scan_writeback_and_detail_render(tmp_path: Path) -> None:
+    db, site_id = await _seed_site_for_scan(tmp_path)
+    app = create_app(Settings(database_path=db, web_dashboard_token="", api_token="secret"))
+    with TestClient(app) as client:
+        payload = {
+            "scan_status": "done",
+            "scan_summary": "发现 2 个中危：暴露 .git 目录、默认登录页",
+            "runs": [
+                {
+                    "tool": "nuclei",
+                    "status": "done",
+                    "result_json": '{"findings": 2}',
+                    "summary": "2 findings",
+                },
+                {
+                    "tool": "httpx",
+                    "status": "done",
+                    "result_json": '{"code": 200}',
+                    "summary": "HTTP 200",
+                },
+            ],
+        }
+        resp = client.post(
+            f"/api/sites/{site_id}/scan",
+            json=payload,
+            headers={"X-API-Token": "secret"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["scan_status"] == "done"
+
+        # detail page should render scan section
+        detail = client.get(f"/sites/{site_id}")
+    assert detail.status_code == 200
+    assert "安全检测" in detail.text
+    assert "已检测" in detail.text
+    assert "检测明细" in detail.text
+    assert "nuclei" in detail.text
+
+
+@pytest.mark.asyncio
+async def test_api_status_update_json(tmp_path: Path) -> None:
+    db, site_id = await _seed_site_for_scan(tmp_path)
+    app = create_app(Settings(database_path=db, web_dashboard_token="", api_token="secret"))
+    with TestClient(app) as client:
+        resp = client.post(
+            f"/api/sites/{site_id}/status",
+            json={"status": "已处理"},
+            headers={"X-API-Token": "secret"},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "已处理"
