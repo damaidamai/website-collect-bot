@@ -154,6 +154,93 @@ def test_healthz_does_not_require_dashboard_token(tmp_path: Path) -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_api_supports_full_site_record_lifecycle(tmp_path: Path) -> None:
+    app = create_app(Settings(database_path=tmp_path / "sites.sqlite3", api_token="secret"))
+    headers = {"X-API-Key": "secret"}
+
+    with TestClient(app) as client:
+        denied = client.get("/api/v1/sites")
+        created = client.post(
+            "/api/v1/sites",
+            headers=headers,
+            json={
+                "domain": "https://admin.example.com/login",
+                "title": "Example",
+                "summary": "待检查",
+            },
+        )
+        site_id = created.json()["id"]
+        listed = client.get("/api/v1/sites?status=待处理&q=example", headers=headers)
+        updated = client.patch(
+            f"/api/v1/sites/{site_id}",
+            headers=headers,
+            json={
+                "canonical_url": "https://example.com/updated",
+                "title": "Example Updated",
+                "summary": "已补充摘要",
+                "notes": "需要复测",
+                "reason": "外部系统更新",
+            },
+        )
+        status_updated = client.patch(
+            f"/api/v1/sites/{site_id}/status",
+            headers=headers,
+            json={"status": "done", "reason": "外部系统已完成"},
+        )
+        event_created = client.post(
+            f"/api/v1/sites/{site_id}/events",
+            headers=headers,
+            json={"event_type": "external_sync", "content": "已同步到外部系统"},
+        )
+        history = client.get(f"/api/v1/sites/{site_id}/history", headers=headers)
+        events = client.get(f"/api/v1/sites/{site_id}/events", headers=headers)
+        deleted = client.delete(f"/api/v1/sites/{site_id}", headers=headers)
+        missing = client.get(f"/api/v1/sites/{site_id}", headers=headers)
+
+    assert denied.status_code == 401
+    assert denied.json() == {"detail": "invalid api token"}
+    assert created.status_code == 201
+    assert created.json()["domain"] == "example.com"
+    assert listed.status_code == 200
+    assert listed.json()["counts"]["全部"] == 1
+    assert updated.status_code == 200
+    assert updated.json()["canonical_url"] == "https://example.com/updated"
+    assert updated.json()["title"] == "Example Updated"
+    assert updated.json()["summary"] == "已补充摘要"
+    assert status_updated.status_code == 200
+    assert status_updated.json()["status"] == SiteStatus.DONE.value
+    assert event_created.status_code == 201
+    assert history.json()[0]["reason"] == "外部系统已完成"
+    assert events.json()[0]["event_type"] == "external_sync"
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": True, "site_id": site_id}
+    assert missing.status_code == 404
+
+
+def test_api_supports_bearer_token_and_validates_updates(tmp_path: Path) -> None:
+    app = create_app(Settings(database_path=tmp_path / "sites.sqlite3", api_token="secret"))
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/v1/sites",
+            headers={"Authorization": "Bearer secret"},
+            json={"domain": "example.com"},
+        )
+        site_id = created.json()["id"]
+        empty_update = client.patch(
+            f"/api/v1/sites/{site_id}", headers={"Authorization": "Bearer secret"}, json={}
+        )
+        invalid_status = client.patch(
+            f"/api/v1/sites/{site_id}/status",
+            headers={"Authorization": "Bearer secret"},
+            json={"status": "not-a-status"},
+        )
+
+    assert created.status_code == 201
+    assert empty_update.status_code == 422
+    assert invalid_status.status_code == 422
+
+
 @pytest.mark.asyncio
 async def test_dashboard_updates_status(tmp_path: Path) -> None:
     database_path = tmp_path / "sites.sqlite3"

@@ -42,6 +42,37 @@ uv run website-collect-web
 如设置 `WEB_DASHBOARD_TOKEN`，首次访问使用 `/?token=<token>`，验证后浏览器会保存 Cookie。
 面板支持状态筛选、搜索、查看详情、标记状态，以及更新摘要和备注。
 
+## HTTP API
+
+面板同时提供 JSON API，接口文档在 `http://<host>:8080/docs`。当设置
+`API_TOKEN` 时，第三方请求使用以下任一方式鉴权：
+
+```bash
+curl -H "X-API-Token: <API_TOKEN>" http://<host>:8080/api/v1/sites
+# 或：X-API-Key / Authorization: Bearer <API_TOKEN>
+```
+
+所有 API 均以 `/api/v1` 开头：
+
+- `GET /sites`：列表、搜索（`q`）、状态筛选（`status`）与统计。
+- `POST /sites`：创建或更新网站记录。
+- `GET /sites/{site_id}`：获取网站记录。
+- `PATCH /sites/{site_id}`：更新 URL、标题、摘要、备注或状态。
+- `PATCH /sites/{site_id}/status`：只更新处理状态，可附 `reason` 和 `notes`。
+- `GET /sites/{site_id}/history`：读取状态变更历史。
+- `GET /sites/{site_id}/events`、`POST /sites/{site_id}/events`：读取或新增操作事件。
+- `GET /sites/{site_id}/messages`：读取关联的 Telegram 原始消息。
+- `DELETE /sites/{site_id}`：删除网站记录及其状态历史、事件和关联关系；原始 Telegram 消息保留。
+
+创建网站记录示例：
+
+```bash
+curl -X POST http://<host>:8080/api/v1/sites \
+  -H "X-API-Token: <API_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"domain":"https://example.com/login","title":"Example","summary":"待检查登录页","status":"待处理"}'
+```
+
 ## 命令
 
 - `/list`：查看全部网站

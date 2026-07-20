@@ -227,6 +227,8 @@ class Storage:
     async def update_site_by_id(
         self,
         site_id: int,
+        canonical_url: str | None = None,
+        title: str | None = None,
         status: str | None = None,
         summary: str | None = None,
         notes: str | None = None,
@@ -247,6 +249,8 @@ class Storage:
                 return None
 
             site = row_to_site(row)
+            next_canonical_url = canonical_url if canonical_url is not None else site.canonical_url
+            next_title = title if title is not None else site.title
             next_status = status if status is not None else site.status
             next_summary = summary if summary is not None else site.summary
             next_notes = notes if notes is not None else site.notes
@@ -254,14 +258,27 @@ class Storage:
             await db.execute(
                 """
                 UPDATE sites
-                SET status = ?, summary = ?, notes = ?, updated_at = ?
+                SET canonical_url = ?, title = ?, status = ?, summary = ?, notes = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (next_status, next_summary, next_notes, now, site.id),
+                (
+                    next_canonical_url,
+                    next_title,
+                    next_status,
+                    next_summary,
+                    next_notes,
+                    now,
+                    site.id,
+                ),
             )
             if next_status != site.status:
                 await self._insert_status_history(db, site.id, site.status, next_status, reason)
-            if next_summary != site.summary or next_notes != site.notes:
+            if (
+                next_canonical_url != site.canonical_url
+                or next_title != site.title
+                or next_summary != site.summary
+                or next_notes != site.notes
+            ):
                 await db.execute(
                     """
                     INSERT INTO site_events (site_id, event_type, content, created_at)
@@ -351,6 +368,18 @@ class Storage:
             )
             row = await cursor.fetchone()
             return row_to_site(row) if row else None
+
+    async def delete_site_by_id(self, site_id: int) -> bool:
+        """Delete a site and its site-specific audit trail, retaining source messages."""
+        async with aiosqlite.connect(self.database_path) as db:
+            cursor = await db.execute("DELETE FROM sites WHERE id = ?", (site_id,))
+            if cursor.rowcount == 0:
+                return False
+            await db.execute("DELETE FROM site_messages WHERE site_id = ?", (site_id,))
+            await db.execute("DELETE FROM site_events WHERE site_id = ?", (site_id,))
+            await db.execute("DELETE FROM status_history WHERE site_id = ?", (site_id,))
+            await db.commit()
+            return True
 
     async def site_messages(self, site_id: int, limit: int = 50) -> list[dict[str, object]]:
         async with aiosqlite.connect(self.database_path) as db:

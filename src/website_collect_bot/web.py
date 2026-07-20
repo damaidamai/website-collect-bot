@@ -5,10 +5,12 @@ from datetime import datetime
 from html import escape
 from urllib.parse import urlencode
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from pydantic import BaseModel, ConfigDict, Field
 
 from website_collect_bot.config import Settings, get_settings
+from website_collect_bot.extract import canonical_site_key, normalize_domain, normalize_url
 from website_collect_bot.models import (
     ScanRun,
     ScanStatus,
@@ -29,6 +31,81 @@ STATUS_ORDER = [
 ]
 
 
+class SiteResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    domain: str
+    canonical_url: str | None
+    title: str | None
+    status: str
+    summary: str
+    notes: str
+    first_seen_at: datetime
+    updated_at: datetime
+    scan_status: str
+    scan_summary: str
+    scanned_at: datetime | None
+
+
+class SiteCreateRequest(BaseModel):
+    domain: str = Field(description="域名或完整 URL，例如 example.com 或 https://example.com/login")
+    canonical_url: str | None = Field(default=None, description="网站的代表性 URL")
+    title: str | None = None
+    status: str = SiteStatus.TODO.value
+    summary: str = ""
+    notes: str = ""
+
+
+class SiteUpdateRequest(BaseModel):
+    canonical_url: str | None = None
+    title: str | None = None
+    status: str | None = None
+    summary: str | None = None
+    notes: str | None = None
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class StatusUpdateRequest(BaseModel):
+    status: str
+    notes: str | None = None
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class EventCreateRequest(BaseModel):
+    event_type: str = Field(min_length=1, max_length=100)
+    content: str = Field(min_length=1, max_length=5000)
+
+
+class SiteListResponse(BaseModel):
+    items: list[SiteResponse]
+    counts: dict[str, int]
+
+
+class DeleteResponse(BaseModel):
+    deleted: bool
+    site_id: int
+
+
+def site_response(site: SiteRecord) -> SiteResponse:
+    return SiteResponse.model_validate(site)
+
+
+def normalized_api_status(value: str) -> str:
+    normalized = normalize_status(value)
+    if normalized is None:
+        raise HTTPException(status_code=422, detail="unknown status")
+    return normalized
+
+
+def api_site_identity(request: SiteCreateRequest) -> tuple[str, str | None]:
+    domain = canonical_site_key(normalize_domain(request.domain))
+    if not domain:
+        raise HTTPException(status_code=422, detail="domain is required")
+    canonical_url = normalize_url(request.canonical_url or request.domain)
+    return domain, canonical_url
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     storage = Storage(settings.database_path)
@@ -38,7 +115,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await storage.init()
         yield
 
-    app = FastAPI(title="Website Collect Dashboard", lifespan=lifespan)
+    app = FastAPI(
+        title="Website Collect API",
+        description="用于记录、检索和跟踪网站处理状态的 API。",
+        version="1.0.0",
+        lifespan=lifespan,
+    )
 
     @app.middleware("http")
     async def dashboard_auth(request: Request, call_next):
@@ -47,7 +129,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         if request.url.path.startswith("/api/"):
             api_token = settings.api_token.strip()
-            if api_token and request.headers.get("x-api-token", "").strip() != api_token:
+            authorization = request.headers.get("Authorization", "")
+            scheme, _, bearer_token = authorization.partition(" ")
+            supplied_token = (
+                request.headers.get("X-API-Token", "").strip()
+                or request.headers.get("X-API-Key", "").strip()
+                or (bearer_token if scheme.lower() == "bearer" else "")
+            )
+            if api_token and supplied_token != api_token:
                 return JSONResponse({"detail": "invalid api token"}, status_code=401)
             return await call_next(request)
 
@@ -85,6 +174,105 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/v1/sites", response_model=SiteListResponse, tags=["网站记录"])
+    async def api_v1_list_sites(
+        status_value: str | None = Query(default=None, alias="status"),
+        q: str | None = Query(default=None, max_length=200),
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> SiteListResponse:
+        selected_status = normalized_api_status(status_value) if status_value else None
+        sites = await storage.search_sites(status=selected_status, query=q, limit=limit)
+        return SiteListResponse(
+            items=[site_response(site) for site in sites],
+            counts=counts_with_total(await storage.status_counts()),
+        )
+
+    @app.post(
+        "/api/v1/sites",
+        response_model=SiteResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["网站记录"],
+    )
+    async def api_create_site(payload: SiteCreateRequest) -> SiteResponse:
+        domain, canonical_url = api_site_identity(payload)
+        site = await storage.upsert_site(
+            domain=domain,
+            canonical_url=canonical_url,
+            title=payload.title,
+            status=normalized_api_status(payload.status),
+            summary=payload.summary,
+            notes=payload.notes,
+        )
+        return site_response(site)
+
+    @app.get("/api/v1/sites/{site_id}", response_model=SiteResponse, tags=["网站记录"])
+    async def api_get_site(site_id: int) -> SiteResponse:
+        site = await storage.get_site_by_id(site_id)
+        if site is None:
+            raise HTTPException(status_code=404, detail="site not found")
+        return site_response(site)
+
+    @app.patch("/api/v1/sites/{site_id}", response_model=SiteResponse, tags=["网站记录"])
+    async def api_update_site(site_id: int, payload: SiteUpdateRequest) -> SiteResponse:
+        fields = payload.model_fields_set
+        if not fields - {"reason"}:
+            raise HTTPException(status_code=422, detail="at least one site field is required")
+        site = await storage.update_site_by_id(
+            site_id,
+            canonical_url=normalize_url(payload.canonical_url) if payload.canonical_url is not None else None,
+            title=payload.title,
+            status=normalized_api_status(payload.status) if payload.status is not None else None,
+            summary=payload.summary,
+            notes=payload.notes,
+            reason=payload.reason or "API 更新网站记录",
+        )
+        if site is None:
+            raise HTTPException(status_code=404, detail="site not found")
+        return site_response(site)
+
+    @app.patch("/api/v1/sites/{site_id}/status", response_model=SiteResponse, tags=["网站记录"])
+    async def api_update_site_status(site_id: int, payload: StatusUpdateRequest) -> SiteResponse:
+        site = await storage.update_site_by_id(
+            site_id,
+            status=normalized_api_status(payload.status),
+            notes=payload.notes,
+            reason=payload.reason or "API 更新状态",
+        )
+        if site is None:
+            raise HTTPException(status_code=404, detail="site not found")
+        return site_response(site)
+
+    @app.get("/api/v1/sites/{site_id}/history", tags=["追踪记录"])
+    async def api_status_history(site_id: int) -> list[dict[str, str]]:
+        if await storage.get_site_by_id(site_id) is None:
+            raise HTTPException(status_code=404, detail="site not found")
+        return await storage.status_history(site_id)
+
+    @app.get("/api/v1/sites/{site_id}/events", tags=["追踪记录"])
+    async def api_list_events(site_id: int) -> list[dict[str, str]]:
+        if await storage.get_site_by_id(site_id) is None:
+            raise HTTPException(status_code=404, detail="site not found")
+        return await storage.site_events(site_id)
+
+    @app.post("/api/v1/sites/{site_id}/events", status_code=status.HTTP_201_CREATED, tags=["追踪记录"])
+    async def api_create_event(site_id: int, payload: EventCreateRequest) -> dict[str, str]:
+        if await storage.get_site_by_id(site_id) is None:
+            raise HTTPException(status_code=404, detail="site not found")
+        await storage.add_event(site_id, payload.event_type, payload.content)
+        return {"status": "created"}
+
+    @app.get("/api/v1/sites/{site_id}/messages", tags=["追踪记录"])
+    async def api_list_messages(site_id: int) -> list[dict[str, object]]:
+        if await storage.get_site_by_id(site_id) is None:
+            raise HTTPException(status_code=404, detail="site not found")
+        return await storage.site_messages(site_id)
+
+    @app.delete("/api/v1/sites/{site_id}", response_model=DeleteResponse, tags=["网站记录"])
+    async def api_delete_site(site_id: int) -> DeleteResponse:
+        if not await storage.delete_site_by_id(site_id):
+            raise HTTPException(status_code=404, detail="site not found")
+        return DeleteResponse(deleted=True, site_id=site_id)
 
     @app.get("/", response_class=HTMLResponse)
     async def index(
