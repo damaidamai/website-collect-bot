@@ -7,13 +7,15 @@
 
 部署信息：
 - 服务器 SSH 别名：`JP2C4G`
-- 服务器 IP：`207.56.229.121`
+- 服务器 IP：`177.2.186.10`
 - SSH 用户：`damai`
 - SSH 端口：`2221`
 - 服务器项目目录：`/home/damai/projects/website-collect-bot`
 - systemd 服务：`website-collect-bot.service`
 - Web 面板服务：`website-collect-web.service`
 - Web 面板端口：`8080`
+- MCP 端点：`http://177.2.186.10:8080/mcp`
+- MCP 鉴权：`Authorization: Bearer <API_TOKEN>`，未配置 `API_TOKEN` 时回退 `WEB_DASHBOARD_TOKEN`
 - SQLite 每日备份 timer：`website-collect-bot-sqlite-backup.timer`
 - 推荐部署命令：`./deploy.sh`
 

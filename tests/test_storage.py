@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from website_collect_bot.models import SiteStatus
 from website_collect_bot.storage import Storage
 
@@ -24,6 +26,27 @@ async def test_upsert_site_and_set_status(tmp_path: Path) -> None:
     assert updated is not None
     assert updated.status == SiteStatus.DONE.value
     assert updated.notes == "首次记录\n说明或备注"
+
+
+@pytest.mark.asyncio
+async def test_append_notes_and_delete_site(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "sites.sqlite3")
+    await storage.init()
+    site = await storage.upsert_site(
+        domain="example.com",
+        canonical_url="https://example.com",
+        title=None,
+        summary="摘要",
+        notes="第一行",
+    )
+    appended = await storage.append_notes(site.id, "第二行")
+    assert appended is not None
+    assert appended.notes == "第一行\n第二行"
+
+    deleted = await storage.delete_site_by_id(site.id)
+    assert deleted is not None
+    assert deleted.domain == "example.com"
+    assert await storage.get_site_by_id(site.id) is None
 
 
 async def test_record_message_and_link_site(tmp_path: Path) -> None:

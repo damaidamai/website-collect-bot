@@ -42,6 +42,8 @@ uv run website-collect-web
 如设置 `WEB_DASHBOARD_TOKEN`，首次访问使用 `/?token=<token>`，验证后浏览器会保存 Cookie。
 面板支持状态筛选、搜索、查看详情、标记状态，以及更新摘要和备注。
 
+同一端口还提供 MCP：`http://<host>:8080/mcp`。其他 LLM 可通过它查询、新增、改状态、改摘要、追加备注、删除站点。鉴权用 `Authorization: Bearer <API_TOKEN>`（未配置 `API_TOKEN` 时回退 `WEB_DASHBOARD_TOKEN`）。详见 [docs/deploy.md](docs/deploy.md)。
+
 ## HTTP API
 
 面板同时提供 JSON API，接口文档在 `http://<host>:8080/docs`。当设置

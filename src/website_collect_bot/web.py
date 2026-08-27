@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from website_collect_bot.config import Settings, get_settings
 from website_collect_bot.extract import canonical_site_key, normalize_domain, normalize_url
+from website_collect_bot.mcp_server import build_mcp_asgi, create_mcp_server, mount_mcp
 from website_collect_bot.models import (
     ScanRun,
     ScanStatus,
@@ -109,11 +110,14 @@ def api_site_identity(request: SiteCreateRequest) -> tuple[str, str | None]:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     storage = Storage(settings.database_path)
+    mcp = create_mcp_server(storage)
+    mcp_asgi = build_mcp_asgi(mcp)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await storage.init()
-        yield
+        async with mcp.session_manager.run():
+            yield
 
     app = FastAPI(
         title="Website Collect API",
@@ -127,16 +131,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if request.url.path == "/healthz":
             return await call_next(request)
 
-        if request.url.path.startswith("/api/"):
-            api_token = settings.api_token.strip()
-            authorization = request.headers.get("Authorization", "")
-            scheme, _, bearer_token = authorization.partition(" ")
-            supplied_token = (
-                request.headers.get("X-API-Token", "").strip()
-                or request.headers.get("X-API-Key", "").strip()
-                or (bearer_token if scheme.lower() == "bearer" else "")
-            )
-            if api_token and supplied_token != api_token:
+        if is_machine_path(request.url.path):
+            expected = machine_token(settings, request.url.path)
+            if expected and request_machine_token(request) != expected:
                 return JSONResponse({"detail": "invalid api token"}, status_code=401)
             return await call_next(request)
 
@@ -270,7 +267,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.delete("/api/v1/sites/{site_id}", response_model=DeleteResponse, tags=["网站记录"])
     async def api_delete_site(site_id: int) -> DeleteResponse:
-        if not await storage.delete_site_by_id(site_id):
+        if await storage.delete_site_by_id(site_id) is None:
             raise HTTPException(status_code=404, detail="site not found")
         return DeleteResponse(deleted=True, site_id=site_id)
 
@@ -405,6 +402,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="site not found")
         return JSONResponse({"site_id": site.id, "status": site.status})
 
+    mount_mcp(app, mcp_asgi)
     return app
 
 
@@ -1103,6 +1101,28 @@ def counts_with_total(counts: dict[str, int]) -> dict[str, int]:
 
 def is_fetch_request(request: Request) -> bool:
     return request.headers.get("x-requested-with", "").lower() == "fetch"
+
+
+def is_machine_path(path: str) -> bool:
+    return path.startswith("/api/") or path == "/mcp" or path.startswith("/mcp/")
+
+
+def machine_token(settings: Settings, path: str) -> str:
+    api_token = settings.api_token.strip()
+    if path.startswith("/api/"):
+        return api_token
+    return api_token or settings.web_dashboard_token.strip()
+
+
+def request_machine_token(request: Request) -> str:
+    authorization = request.headers.get("authorization", "")
+    scheme, _, bearer_token = authorization.partition(" ")
+    if scheme.lower() == "bearer":
+        return bearer_token.strip()
+    return (
+        request.headers.get("x-api-token", "").strip()
+        or request.headers.get("x-api-key", "").strip()
+    )
 
 
 def current_path(request: Request) -> str:

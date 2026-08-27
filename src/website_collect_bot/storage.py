@@ -290,6 +290,38 @@ class Storage:
             updated = await self.get_site_by_id(site.id)
             return updated
 
+    async def append_notes(
+        self,
+        site_id: int,
+        notes: str,
+        reason: str | None = None,
+    ) -> SiteRecord | None:
+        extra = notes.strip()
+        if not extra:
+            raise ValueError("notes must not be empty")
+        site = await self.get_site_by_id(site_id)
+        if site is None:
+            return None
+        merged = f"{site.notes}\n{extra}" if site.notes.strip() else extra
+        return await self.update_site_by_id(
+            site_id,
+            notes=merged,
+            reason=reason or "追加备注",
+        )
+
+    async def delete_site_by_id(self, site_id: int) -> SiteRecord | None:
+        site = await self.get_site_by_id(site_id)
+        if site is None:
+            return None
+        async with aiosqlite.connect(self.database_path) as db:
+            await db.execute("DELETE FROM site_messages WHERE site_id = ?", (site_id,))
+            await db.execute("DELETE FROM site_events WHERE site_id = ?", (site_id,))
+            await db.execute("DELETE FROM status_history WHERE site_id = ?", (site_id,))
+            await db.execute("DELETE FROM scan_runs WHERE site_id = ?", (site_id,))
+            await db.execute("DELETE FROM sites WHERE id = ?", (site_id,))
+            await db.commit()
+        return site
+
     async def get_site(self, domain: str) -> SiteRecord | None:
         async with aiosqlite.connect(self.database_path) as db:
             row = await self._get_site_row(db, domain)
@@ -368,18 +400,6 @@ class Storage:
             )
             row = await cursor.fetchone()
             return row_to_site(row) if row else None
-
-    async def delete_site_by_id(self, site_id: int) -> bool:
-        """Delete a site and its site-specific audit trail, retaining source messages."""
-        async with aiosqlite.connect(self.database_path) as db:
-            cursor = await db.execute("DELETE FROM sites WHERE id = ?", (site_id,))
-            if cursor.rowcount == 0:
-                return False
-            await db.execute("DELETE FROM site_messages WHERE site_id = ?", (site_id,))
-            await db.execute("DELETE FROM site_events WHERE site_id = ?", (site_id,))
-            await db.execute("DELETE FROM status_history WHERE site_id = ?", (site_id,))
-            await db.commit()
-            return True
 
     async def site_messages(self, site_id: int, limit: int = 50) -> list[dict[str, object]]:
         async with aiosqlite.connect(self.database_path) as db:

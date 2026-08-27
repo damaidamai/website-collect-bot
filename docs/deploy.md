@@ -7,7 +7,7 @@
 ## 1. 托管环境信息
 
 - **服务器 SSH 别名**：`JP2C4G` (配置在本地 `~/.ssh/config` 中)
-  - IP 地址：`207.56.229.121`
+  - IP 地址：`177.2.186.10`
   - SSH 端口：`2221`
   - SSH 用户：`damai`
 - **服务器项目工作目录**：`/home/damai/projects/website-collect-bot`
@@ -85,7 +85,38 @@ curl http://127.0.0.1:8080/healthz
 如 `.env` 配置了 `WEB_DASHBOARD_TOKEN`，浏览器首次访问：
 
 ```text
-http://207.56.229.121:8080/?token=<WEB_DASHBOARD_TOKEN>
+http://177.2.186.10:8080/?token=<WEB_DASHBOARD_TOKEN>
+```
+
+### MCP（给其他 LLM 做增删改查）
+
+Web 面板同一进程对外提供 Streamable HTTP MCP：
+
+```text
+http://177.2.186.10:8080/mcp
+```
+
+鉴权优先用 `.env` 里的 `API_TOKEN`。未配置 `API_TOKEN` 时，MCP 会接受 `WEB_DASHBOARD_TOKEN`。客户端请求头：
+
+```text
+Authorization: Bearer <API_TOKEN>
+```
+
+可用工具：`list_sites`、`get_site`、`create_site`、`update_site`、`add_notes`、`delete_site`、`status_counts`。删除必须 `confirm=true`。
+
+Claude / Cursor / 其他 MCP 客户端示例：
+
+```json
+{
+  "mcpServers": {
+    "website-collect": {
+      "url": "http://177.2.186.10:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer <API_TOKEN>"
+      }
+    }
+  }
+}
 ```
 
 ### SQLite 每日备份
